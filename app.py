@@ -14,6 +14,7 @@ import main as mn
 
 # Initialize the Dash app
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
+server = app.server
 
 # Initialize global variables to store data from .NET
 global_containers_df = None  # Will store the containers DataFrame 
@@ -454,4 +455,4 @@ def update_container_visualization(search, n_intervals):
 
 # Run the Dash app
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=8050)
+    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8050)))
