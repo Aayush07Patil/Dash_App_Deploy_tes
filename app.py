@@ -299,10 +299,18 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
         max_dim = max(L, W, H)
         aspect_ratio = {'x': L / max_dim, 'y': W / max_dim, 'z': H / max_dim}
 
-        # Title text based on whether products are placed - REMOVED PER REQUEST
-        # title_text = ""
+        if not product_found:
+            if not is_blocked:
+                # Case where no products are placed in the container
+                title_text = f"Container {container['ULDCategory']} - {container['id']}"
+            else:
+                title_text = f"Container {container['ULDCategory']} - {container['id']}<br>Blocked for BUP"
+        else:
+            # Case where products are placed in the container
+            destination_codes_text = ', '.join(destination_codes)  # Convert the set to a comma-separated string
+            title_text = f"Container {container['ULDCategory']} - {container['id']} and Placed Products<br>Destinations: {destination_codes_text}"
 
-        # Update layout with modified settings - REMOVED TITLE
+        # Update layout with the title
         fig.update_layout(
             scene=dict(
                 xaxis=dict(nticks=10, title='Length'),
@@ -310,7 +318,8 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
                 zaxis=dict(nticks=10, title='Height'),
                 aspectratio=aspect_ratio
             ),
-            # title removed
+            title= title_text,
+            title_x=0.5,
             margin=dict(l=0, r=0, t=0, b=0)  # Remove margins
         )
 
