@@ -33,6 +33,7 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
     colors = ['red', 'blue', 'green', 'orange', 'purple', 'yellow', 'pink', 'cyan', 'lime', 'magenta']
 
     if container_number is not None:
+        # No need to convert container_number to int, compare as string
         containers = [container for container in containers if container['id'] == container_number]
     
     fig = go.Figure()
@@ -49,7 +50,7 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
 
         product_found = False
         for p in placed_products:
-            if p['container'] == container['id']:
+            if p['container'] == container['id']:  # Compare string IDs
                 product_found = True
                 x, y, z, l, w, h = p['position']
                 destination_codes.add(p['DestinationCode'])
@@ -140,7 +141,6 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
                 [2, 7], [0, 5]  
             ]
             faces = [
-
                 # Left Face [0, 1, 4, 3, 2]
                 [0, 1, 4],
                 [0, 4, 3],
@@ -245,7 +245,7 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
             ]
 
         # Determine if this container is blocked
-        is_blocked = any(b['id'] == container['id'] for b in blocked_for_ULD)
+        is_blocked = any(b['id'] == container['id'] for b in blocked_for_ULD)  # Compare string IDs
 
         # Set styling based on blockage
         container_opacity = 0.0 if not is_blocked else 1.0  # Opacity lower if blocked
@@ -428,8 +428,9 @@ def update_container_visualization(search, n_intervals):
     
     if 'container' in query_params:
         try:
+            # No need to convert to int, use as string
             selected_container = query_params['container'][0]
-        except (ValueError, IndexError):
+        except (IndexError):
             pass
     
     # Use your existing visualization function with the global data

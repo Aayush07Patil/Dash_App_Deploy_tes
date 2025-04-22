@@ -233,7 +233,7 @@ def preprocess_containers_and_products(products, containers, blocked_for_ULD):
             print(f"Product {product['id']} (ULDCategory: {product['ULDCategory']}) blocks container {matching_container['id']}.")
             product_data = {
                             'id': product['id'],
-                            'container': matching_container['id'],
+                            'container': matching_container['id'],  # This will now be a string ID
                             'DestinationCode': product['DestinationCode'],
                             'awb_number': product['awb_number']
                         }
@@ -349,7 +349,7 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
                         product_data = {
                             'id': product['id'],
                             'position': (x, y, z, l, w, h),
-                            'container': container['id'],
+                            'container': container['id'],  # This will now be a string ID
                             'Volume': product['Volume'],
                             'DestinationCode': product['DestinationCode'],
                             'awb_number': product['awb_number']
