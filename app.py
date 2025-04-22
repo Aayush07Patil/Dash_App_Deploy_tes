@@ -428,7 +428,7 @@ def update_container_visualization(search, n_intervals):
     
     if 'container' in query_params:
         try:
-            selected_container = int(query_params['container'][0])
+            selected_container = query_params['container'][0]
         except (ValueError, IndexError):
             pass
     
