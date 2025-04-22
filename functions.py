@@ -502,6 +502,60 @@ def process(products, containers, blocked_containers, DC_total_volumes):
                 
     return placed, unplaced, blocked_for_ULD, placed_ulds
 
+def create_container_product_summary(placed_products):
+    """
+    Creates a structured summary of products placed in each container.
+    
+    Args:
+        placed_products (list): List of dictionaries with placed product data
+        
+    Returns:
+        dict: Nested dictionary with container -> awb_number -> dimensions -> count
+              in a format ready for JSON serialization
+    """
+    # Initialize the container report dictionary
+    container_summary = {}
+    
+    # Process each placed product
+    for product in placed_products:
+        container_id = product['container']
+        awb_number = product['awb_number']
+        position = product['position']
+        destination_code = product['DestinationCode']
+        
+        # Extract dimensions from position (x, y, z, length, width, height)
+        _, _, _, length, width, height = position
+        
+        # Create a dimension key that can be used in JSON
+        dimensions = f"{length:.2f}x{width:.2f}x{height:.2f}"
+        
+        # Initialize container entry if not exists
+        if container_id not in container_summary:
+            container_summary[container_id] = {
+                "awb_data": {},
+                "total_products": 0
+            }
+        
+        # Initialize AWB entry if not exists
+        if awb_number not in container_summary[container_id]["awb_data"]:
+            container_summary[container_id]["awb_data"][awb_number] = {
+                "destination_code": destination_code,
+                "dimensions": {},
+                "total_count": 0
+            }
+        
+        # Initialize or increment the count for this dimension
+        if dimensions not in container_summary[container_id]["awb_data"][awb_number]["dimensions"]:
+            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] = 1
+        else:
+            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] += 1
+        
+        # Update the total counts
+        container_summary[container_id]["awb_data"][awb_number]["total_count"] += 1
+        container_summary[container_id]["total_products"] += 1
+    
+    return container_summary
+
 def visualize_separate_containers_with_plotly(containers, placed_products, blocked_for_ULD):
     colors = ['red', 'blue', 'green', 'orange', 'purple', 'yellow', 'pink', 'cyan', 'lime', 'magenta']
 
