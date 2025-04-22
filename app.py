@@ -372,7 +372,7 @@ def ensure_data_processed():
 
 # Define the app layout - with message to send data first
 app.layout = html.Div([
-    html.H1("Container Visualization Dashboard", style={'textAlign': 'center'}),
+    #html.H1("Container Visualization Dashboard", style={'textAlign': 'center'}),
     
     # Message area for instructions or status
     html.Div([
@@ -399,7 +399,7 @@ app.layout = html.Div([
     # Interval component for periodic refreshes to check for new data
     dcc.Interval(
         id='interval-component',
-        interval=2*1000,  # in milliseconds (2 seconds)
+        interval=180*1000,  # in milliseconds (2 seconds)
         n_intervals=0
     )
 ])
@@ -445,7 +445,7 @@ def update_container_visualization(search, n_intervals):
     # Update message based on selected container
     if selected_container:
         message = [
-            html.H3(f"Showing Container {selected_container}"),
+            #html.H3(f"Showing Container {selected_container}"),
         ]
     else:
         message = [
