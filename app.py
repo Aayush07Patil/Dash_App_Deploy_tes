@@ -299,19 +299,10 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
         max_dim = max(L, W, H)
         aspect_ratio = {'x': L / max_dim, 'y': W / max_dim, 'z': H / max_dim}
 
-        # Title text based on whether products are placed
-        if not product_found:
-            if not is_blocked:
-                # Case where no products are placed in the container
-                title_text = f"Container {container['ULDCategory']} - {container['id']}"
-            else:
-                title_text = f"Container {container['ULDCategory']} - {container['id']}<br>Blocked for BUP"
-        else:
-            # Case where products are placed in the container
-            destination_codes_text = ', '.join(destination_codes)  # Convert the set to a comma-separated string
-            title_text = f"Container {container['ULDCategory']} - {container['id']} and Placed Products<br>Destinations: {destination_codes_text}"
+        # Title text based on whether products are placed - REMOVED PER REQUEST
+        # title_text = ""
 
-        # Update layout with the title
+        # Update layout with modified settings - REMOVED TITLE
         fig.update_layout(
             scene=dict(
                 xaxis=dict(nticks=10, title='Length'),
@@ -319,8 +310,8 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
                 zaxis=dict(nticks=10, title='Height'),
                 aspectratio=aspect_ratio
             ),
-            title=title_text,
-            title_x=0.5
+            # title removed
+            margin=dict(l=0, r=0, t=0, b=0)  # Remove margins
         )
 
     return fig
@@ -370,57 +361,34 @@ def ensure_data_processed():
             global_blocked_for_ULD, global_placed_ulds = [], []
             global_processed = True  # Mark as processed to avoid repeated errors
 
-# Define the app layout - with message to send data first
-app.layout = html.Div([
-    #html.H1("Container Visualization Dashboard", style={'textAlign': 'center'}),
-    
-    # Message area for instructions or status
-    html.Div([
-        html.Div(id='message-area', children=[
-            html.H3("Welcome to the Container Visualization Dashboard"),
-            html.P("Please send data from the ASP.NET application first by clicking 'Send Data to Dash'."),
-            html.P("Then select a specific container to visualize by clicking its button.")
-        ], style={
-            'textAlign': 'center',
-            'padding': '20px',
-            'backgroundColor': '#f9f9f9',
-            'borderRadius': '8px',
-            'marginBottom': '20px',
-            'border': '1px solid #ddd'
-        })
-    ]),
-    
-    # Graph for displaying the 3D container visualization
-    dcc.Graph(id='container-graph'),
+# Define the app layout - SIMPLIFIED, removed title and message box
+app.layout = html.Div([    
+    # Only the graph for displaying the 3D container visualization
+    dcc.Graph(id='container-graph', style={'height': '100vh'}),
     
     # Store the URL params in the dcc.Location component
     dcc.Location(id='url', refresh=False),
     
-    # Interval component for periodic refreshes to check for new data
+    # Interval component with max_intervals to prevent continuous refreshing
     dcc.Interval(
         id='interval-component',
-        interval=180*1000,  # in milliseconds (2 seconds)
-        n_intervals=0
+        interval=2*1000,  # in milliseconds
+        n_intervals=0,
+        max_intervals=3  # Stop refreshing after 3 intervals
     )
 ])
 
 # Callback to update the visualization based on URL parameters
 @app.callback(
-    [Output('container-graph', 'figure'),
-     Output('message-area', 'children')],
+    Output('container-graph', 'figure'),
     [Input('url', 'search'),
      Input('interval-component', 'n_intervals')]
 )
 def update_container_visualization(search, n_intervals):
     # Check if data has been received
     if not global_processed:
-        # No data yet, show welcome message
-        message = [
-            html.H3("Welcome to the Container Visualization Dashboard"),
-            html.P("Please send data from the ASP.NET application first by clicking 'Send Data to Dash'."),
-            html.P("Then select a specific container to visualize by clicking its button.")
-        ]
-        return go.Figure(), message
+        # No data yet, show empty figure
+        return go.Figure()
     
     # Parse URL parameters to get container ID
     query_params = parse_qs(search.lstrip('?'))
@@ -442,18 +410,7 @@ def update_container_visualization(search, n_intervals):
         selected_container
     )
     
-    # Update message based on selected container
-    if selected_container:
-        message = [
-            #html.H3(f"Showing Container {selected_container}"),
-        ]
-    else:
-        message = [
-            html.H3("Data Loaded Successfully"),
-            html.P("Use the container buttons to select a specific container to visualize.")
-        ]
-    
-    return fig, message
+    return fig
 
 # Run the Dash app - modified for Azure
 if __name__ == '__main__':
