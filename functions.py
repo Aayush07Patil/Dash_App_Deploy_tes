@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import pprint
+#import pprint
 from itertools import permutations
 import math
 from collections import defaultdict
@@ -220,11 +220,10 @@ def fits(container, placed_products, x, y, z, l, w, h):
 
     return True
 
-def preprocess_containers_and_products(products, containers, blocked_for_ULD):
+def preprocess_containers_and_products(products, containers, blocked_for_ULD, placed_ulds, placed_products):
     # Filter products of type 'ULD'
     uld_products = [p for p in products if p['PieceType'] == 'ULD']
     blocked_containers = []
-    placed_ulds = []
 
     # Check if containers with matching ULDCategory are available
     for product in uld_products:
@@ -233,11 +232,17 @@ def preprocess_containers_and_products(products, containers, blocked_for_ULD):
             print(f"Product {product['id']} (ULDCategory: {product['ULDCategory']}) blocks container {matching_container['id']}.")
             product_data = {
                             'id': product['id'],
-                            'container': matching_container['id'],  # This will now be a string ID
+                            'Length': product['Length'],
+                            'Breadth': product['Breadth'],
+                            'Height': product['Height'],
+                            'position': (0,0,0,0,0,0),
+                            'container': matching_container['id'],
+                            'Volume': product['Volume'],
                             'DestinationCode': product['DestinationCode'],
-                            'awb_number': product['awb_number']
+                            'awb_number': product['awb_number']     
                         }
             placed_ulds.append(product_data)
+            placed_products.append(product_data)
             blocked_containers.append(matching_container)
             blocked_for_ULD.append(matching_container)
             containers.remove(matching_container)
@@ -245,9 +250,9 @@ def preprocess_containers_and_products(products, containers, blocked_for_ULD):
 
     # Remove blocked containers from the container list
     containers = [c for c in containers if c not in blocked_containers]
-    return products, containers, blocked_containers, blocked_for_ULD, placed_ulds
+    return products, containers, blocked_containers, blocked_for_ULD, placed_ulds, placed_products
 
-def pack_products_sequentially(containers, products, blocked_containers, DC_total_volumes):
+def pack_products_sequentially(containers, products, blocked_containers, DC_total_volumes, placed_products):
     """
     Pack products into containers sequentially based on volume constraints and dimensions.
 
@@ -260,7 +265,7 @@ def pack_products_sequentially(containers, products, blocked_containers, DC_tota
     Returns:
         tuple: (placed_products, remaining_products, blocked_containers, available_containers)
     """
-    placed_products = []
+    #placed_products = []
     remaining_products = products[:]  # Ensure we work with a copy of the products list
     used_containers = []
     missed_product_count = 0
@@ -348,8 +353,11 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
                     if fits(container, container_placed, x, y, z, l, w, h):
                         product_data = {
                             'id': product['id'],
+                            'Length': l,
+                            'Breadth': w,
+                            'Height': h,
                             'position': (x, y, z, l, w, h),
-                            'container': container['id'],  # This will now be a string ID
+                            'container': container['id'],
                             'Volume': product['Volume'],
                             'DestinationCode': product['DestinationCode'],
                             'awb_number': product['awb_number']
@@ -366,17 +374,19 @@ def process(products, containers, blocked_containers, DC_total_volumes):
     containers_tp = containers[:]
     blocked_for_ULD = []
     placed = []
+    placed_products = []
     unplaced = []
+    placed_ulds = []
     placements = {container['id']: [] for container in containers_tp}  # Tracks placements per container
 
     # First pass: Process each product
     for product in products:
         # Preprocess containers and products to block ULD-related containers
-        products, containers_tp, blocked_containers, blocked_for_ULD, placed_ulds = preprocess_containers_and_products(product, containers_tp, blocked_for_ULD)
+        products, containers_tp, blocked_containers, blocked_for_ULD, placed_ulds, placed_products = preprocess_containers_and_products(product, containers_tp, blocked_for_ULD, placed_ulds, placed_products)
 
         # Place products sequentially
         placed_products, remaining_products, blocked_containers, containers_tp = pack_products_sequentially(
-            containers_tp, products, blocked_containers, DC_total_volumes
+            containers_tp, products, blocked_containers, DC_total_volumes, placed_products
         )
 
         # Record placements and update lists
@@ -418,6 +428,9 @@ def process(products, containers, blocked_containers, DC_total_volumes):
                                     if fits(container, placed_products_in_container, x, y, z, l, w, h):
                                         product_data = {
                                             'id': product['id'],
+                                            'Length': l,
+                                            'Breadth': w,
+                                            'Height': h,
                                             'position': (x, y, z, l, w, h),
                                             'container': container['id'],
                                             'Volume': product['Volume'],
@@ -464,6 +477,9 @@ def process(products, containers, blocked_containers, DC_total_volumes):
                                         if fits(container, placed_products_in_container, x, y, z, l, w, h):
                                             product_data = {
                                                 'id': product['id'],
+                                                'Length': l,
+                                                'Breadth': w,
+                                                'Height': h,
                                                 'position': (x, y, z, l, w, h),
                                                 'container': container['id'],
                                                 'Volume': product['Volume'],
@@ -501,60 +517,6 @@ def process(products, containers, blocked_containers, DC_total_volumes):
                 break
                 
     return placed, unplaced, blocked_for_ULD, placed_ulds
-
-def create_container_product_summary(placed_products):
-    """
-    Creates a structured summary of products placed in each container.
-    
-    Args:
-        placed_products (list): List of dictionaries with placed product data
-        
-    Returns:
-        dict: Nested dictionary with container -> awb_number -> dimensions -> count
-              in a format ready for JSON serialization
-    """
-    # Initialize the container report dictionary
-    container_summary = {}
-    
-    # Process each placed product
-    for product in placed_products:
-        container_id = product['container']
-        awb_number = product['awb_number']
-        position = product['position']
-        destination_code = product['DestinationCode']
-        
-        # Extract dimensions from position (x, y, z, length, width, height)
-        _, _, _, length, width, height = position
-        
-        # Create a dimension key that can be used in JSON
-        dimensions = f"{length:.2f}x{width:.2f}x{height:.2f}"
-        
-        # Initialize container entry if not exists
-        if container_id not in container_summary:
-            container_summary[container_id] = {
-                "awb_data": {},
-                "total_products": 0
-            }
-        
-        # Initialize AWB entry if not exists
-        if awb_number not in container_summary[container_id]["awb_data"]:
-            container_summary[container_id]["awb_data"][awb_number] = {
-                "destination_code": destination_code,
-                "dimensions": {},
-                "total_count": 0
-            }
-        
-        # Initialize or increment the count for this dimension
-        if dimensions not in container_summary[container_id]["awb_data"][awb_number]["dimensions"]:
-            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] = 1
-        else:
-            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] += 1
-        
-        # Update the total counts
-        container_summary[container_id]["awb_data"][awb_number]["total_count"] += 1
-        container_summary[container_id]["total_products"] += 1
-    
-    return container_summary
 
 def visualize_separate_containers_with_plotly(containers, placed_products, blocked_for_ULD):
     colors = ['red', 'blue', 'green', 'orange', 'purple', 'yellow', 'pink', 'cyan', 'lime', 'magenta']
@@ -861,3 +823,98 @@ def visualize_separate_containers_with_plotly(containers, placed_products, block
         
         # Show the figure
         fig.show()
+
+
+def create_container_product_summary(placed_products):
+    """
+    Creates a structured summary of products placed in each container.
+    
+    Args:
+        placed_products (list): List of dictionaries with placed product data
+        
+    Returns:
+        dict: Nested dictionary with container -> awb_number -> dimensions -> count
+              in a format ready for JSON serialization
+    """
+    # Initialize the container report dictionary
+    container_summary = {}
+    
+    # Process each placed product
+    for product in placed_products:
+        container_id = product['container']
+        awb_number = product['awb_number']
+        position = product['position']
+        destination_code = product['DestinationCode']
+        
+        # Extract dimensions from position (x, y, z, length, width, height)
+        _, _, _, length, width, height = position
+        
+        # Create a dimension key that can be used in JSON
+        dimensions = f"{length:.2f}x{width:.2f}x{height:.2f}"
+        
+        # Initialize container entry if not exists
+        if container_id not in container_summary:
+            container_summary[container_id] = {
+                "awb_data": {},
+                "total_products": 0
+            }
+        
+        # Initialize AWB entry if not exists
+        if awb_number not in container_summary[container_id]["awb_data"]:
+            container_summary[container_id]["awb_data"][awb_number] = {
+                "destination_code": destination_code,
+                "dimensions": {},
+                "total_count": 0
+            }
+        
+        # Initialize or increment the count for this dimension
+        if dimensions not in container_summary[container_id]["awb_data"][awb_number]["dimensions"]:
+            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] = 1
+        else:
+            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] += 1
+        
+        # Update the total counts
+        container_summary[container_id]["awb_data"][awb_number]["total_count"] += 1
+        container_summary[container_id]["total_products"] += 1
+    
+    return container_summary
+
+def create_container_summary_table(container_summary):
+    """
+    Converts the container_summary dictionary into a pandas DataFrame 
+    with columns: ContainerID, AWBnumber, Dimensions, Pieces
+    
+    Args:
+        container_summary (dict): The nested dictionary output from create_container_product_summary
+        
+    Returns:
+        pd.DataFrame: A DataFrame with the requested columns
+    """
+    # Initialize empty lists for each column
+    container_ids = []
+    awb_numbers = []
+    dimensions_list = []
+    pieces_list = []
+    
+    # Iterate through the container summary dictionary
+    for container_id, container_data in container_summary.items():
+        for awb_number, awb_data in container_data["awb_data"].items():
+            for dimensions, count in awb_data["dimensions"].items():
+                # Append values to the respective lists
+                container_ids.append(container_id)
+                awb_numbers.append(awb_number)
+                dimensions_list.append(dimensions)
+                pieces_list.append(count)
+    
+    # Create a DataFrame with the collected data
+    df = pd.DataFrame({
+        'ContainerID': container_ids,
+        'AWBnumber': awb_numbers,
+        'Dimensions': dimensions_list,
+        'Pieces': pieces_list
+    })
+    
+    # Sort the DataFrame by ContainerID and AWBnumber for better readability
+    df = df.sort_values(['ContainerID', 'AWBnumber', 'Dimensions'])
+    
+    return df

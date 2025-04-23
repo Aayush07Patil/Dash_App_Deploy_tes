@@ -12,6 +12,7 @@ import os
 
 # Import your main module which processes data
 import main as mn
+import functions as fun
 
 # Initialize the Dash app
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
@@ -27,79 +28,6 @@ global_containers = []
 global_blocked_for_ULD = []
 global_placed_ulds = []
 global_processed = False    # Flag to track if data has been processed
-
-# Function to create container product summary
-def create_container_product_summary(placed_products):
-    """
-    Creates a structured summary of products placed in each container.
-    
-    Args:
-        placed_products (list): List of dictionaries with placed product data
-        
-    Returns:
-        dict: Nested dictionary with container -> awb_number -> dimensions -> count
-              in a format ready for JSON serialization
-    """
-    # Initialize the container report dictionary
-    container_summary = {}
-    
-    # Process each placed product
-    for product in placed_products:
-        container_id = product['container']
-        awb_number = product['awb_number']
-        position = product['position']
-        destination_code = product['DestinationCode']
-        
-        # Extract dimensions from position (x, y, z, length, width, height)
-        _, _, _, length, width, height = position
-        
-        # Create a dimension key that can be used in JSON
-        dimensions = f"{length:.2f}x{width:.2f}x{height:.2f}"
-        
-        # Initialize container entry if not exists
-        if container_id not in container_summary:
-            container_summary[container_id] = {
-                "awb_data": {},
-                "total_products": 0
-            }
-        
-        # Initialize AWB entry if not exists
-        if awb_number not in container_summary[container_id]["awb_data"]:
-            container_summary[container_id]["awb_data"][awb_number] = {
-                "destination_code": destination_code,
-                "dimensions": {},
-                "total_count": 0
-            }
-        
-        # Initialize or increment the count for this dimension
-        if dimensions not in container_summary[container_id]["awb_data"][awb_number]["dimensions"]:
-            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] = 1
-        else:
-            container_summary[container_id]["awb_data"][awb_number]["dimensions"][dimensions] += 1
-        
-        # Update the total counts
-        container_summary[container_id]["awb_data"][awb_number]["total_count"] += 1
-        container_summary[container_id]["total_products"] += 1
-    
-    return container_summary
-
-# New endpoint to get container summary
-@app.server.route('/get_container_summary', methods=['GET'])
-def get_container_summary():
-    global global_placed_products, global_processed
-    
-    # Make sure data has been processed
-    if not global_processed:
-        return jsonify({'status': 'error', 'message': 'No data has been processed yet'})
-    
-    # Generate the summary
-    container_summary = create_container_product_summary(global_placed_products)
-    
-    # Return as JSON
-    return jsonify({
-        'status': 'success',
-        'container_summary': container_summary
-    })
 
 # Your existing visualization function
 def visualize_specific_containers_with_plotly(containers, placed_products, blocked_for_ULD, placed_ulds, container_number=None):
@@ -423,6 +351,26 @@ def update_data():
         print(f"Error processing data: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+# Existing endpoint for container summary
+@app.server.route('/get_container_summary', methods=['GET'])
+def get_container_summary():
+    global global_placed_products, global_processed
+    
+    if not global_processed:
+        return jsonify({'status': 'error', 'message': 'Data not processed yet'})
+    
+    try:
+        # Create summary data
+        container_summary = fun.create_container_product_summary(global_placed_products)
+        
+        return jsonify({
+            'status': 'success',
+            'container_summary': container_summary
+        })
+    except Exception as e:
+        print(f"Error generating container summary: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+    
 # Function to process data if it hasn't been processed yet
 def ensure_data_processed():
     global global_containers_df, global_products_df, global_processed
@@ -434,7 +382,7 @@ def ensure_data_processed():
             # Run your existing processing function
             global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds = mn.main(
                 global_containers_df, global_products_df
-            )
+            ) 
             global_processed = True
         except Exception as e:
             print(f"Error in data processing: {e}")
