@@ -784,7 +784,7 @@ def visualize_separate_containers_with_plotly(containers, placed_products, block
                 name=f"Container {container['ULDCategory']} - {container['id']}"
             ), row=1, col=2)
 
-        elif container['Type'] == 'Palette':
+        elif container['Type'] == 'Pallet':
             # Add wireframe container
             fig.add_trace(go.Scatter3d(
                 x=edge_x, y=edge_y, z=edge_z,
