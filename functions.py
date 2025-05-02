@@ -393,8 +393,14 @@ def process(products, containers, blocked_containers, DC_total_volumes):
         for p in placed_products:
             container_id = p['container']
             placements[container_id].append(p['position'])  # Store placement data
-        placed.extend(placed_products)
-        unplaced.extend(remaining_products)
+        for item in placed_products:
+            if not any(p['id'] == item['id'] for p in placed):
+                placed.append(item)
+                
+        # Only append items to unplaced list if their ID doesn't already exist
+        for item in remaining_products:
+            if not any(p['id'] == item['id'] for p in unplaced):
+                unplaced.append(item)
         
     print("\nAttempting to place unplaced products in remaining spaces...")
     second_pass_placed = []
