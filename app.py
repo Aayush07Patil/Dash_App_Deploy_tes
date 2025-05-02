@@ -12,6 +12,7 @@ import os
 import logging
 import json
 import datetime
+import functions as fun
 
 # Set up logging
 logging.basicConfig(
@@ -394,6 +395,51 @@ def update_data():
     except Exception as e:
         logger.error(f"Error processing data: {str(e)}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
+
+# NEW ENDPOINT: Route to get container table data
+@app.server.route('/get_container_table', methods=['GET'])
+def get_container_table():
+    global global_placed_products, global_processed
+    
+    if not global_processed or not global_placed_products:
+        return jsonify({'status': 'error', 'message': 'No data available yet'})
+    
+    try:
+        # Create the container summary table
+        container_summary = fun.create_container_product_summary(global_placed_products)
+        table_df = fun.create_container_summary_table(container_summary)
+        
+        # Convert to dictionary for JSON serialization
+        table_data = {
+            'status': 'success',
+            'table_data': table_df.to_dict(orient='records')
+        }
+        
+        return jsonify(table_data)
+    except Exception as e:
+        print(f"Error creating table data: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Existing endpoint for container summary
+@app.server.route('/get_container_summary', methods=['GET'])
+def get_container_summary():
+    global global_placed_products, global_processed
+    
+    if not global_processed:
+        return jsonify({'status': 'error', 'message': 'Data not processed yet'})
+    
+    try:
+        # Create summary data
+        container_summary = fun.create_container_product_summary(global_placed_products)
+        
+        return jsonify({
+            'status': 'success',
+            'container_summary': container_summary
+        })
+    except Exception as e:
+        print(f"Error generating container summary: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
 
 # Function to process data if it hasn't been processed yet
 def ensure_data_processed():
