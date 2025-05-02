@@ -445,6 +445,24 @@ def debug_info():
     
     return jsonify(info)
 
+@app.server.route('/view_data', methods=['GET'])
+def view_data():
+    global global_containers_df, global_products_df
+    
+    if global_containers_df is None or global_products_df is None:
+        return jsonify({"error": "No data available yet"})
+    
+    # Convert dataframes to JSON
+    containers_json = global_containers_df.to_dict(orient='records')
+    products_json = global_products_df.to_dict(orient='records')
+    
+    # Return the full data
+    return jsonify({
+        "containers": containers_json,
+        "products": products_json
+    })
+
+
 # Define the app layout - SIMPLIFIED, removed title and message box
 app.layout = html.Div([    
     # Only the graph for displaying the 3D container visualization
