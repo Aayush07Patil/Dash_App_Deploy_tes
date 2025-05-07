@@ -327,11 +327,23 @@ def pack_products_sequentially_optimized(containers, products, blocked_container
 def preprocess_containers_and_products_optimized(products, containers, blocked_for_ULD, placed_ulds, placed_products):
     """
     Optimized preprocessing for ULD products and containers.
-    Uses lookup tables for faster matching.
+    Handles a nested list structure for products.
     """
-    # Get ULD products once
-    uld_products = [p for p in products if p['PieceType'] == 'ULD']
     blocked_containers = []
+    
+    # Flatten the products list if it's nested
+    flat_products = []
+    if products and isinstance(products, list):
+        for product_group in products:
+            if isinstance(product_group, list):
+                flat_products.extend(product_group)
+            else:
+                flat_products.append(product_group)
+    else:
+        flat_products = products
+    
+    # Get ULD products
+    uld_products = [p for p in flat_products if p.get('PieceType') == 'ULD']
     
     # Create lookup table for containers by ULDCategory for faster matching
     container_by_category = {}
@@ -364,10 +376,9 @@ def preprocess_containers_and_products_optimized(products, containers, blocked_f
             blocked_containers.append(matching_container)
             blocked_for_ULD.append(matching_container)
             containers.remove(matching_container)
-            products.remove(product)  # Exclude the product from packing
     
-    #print(f"Preprocessed:\nPlaced Products: {placed_products}\nUnplaced Products: {products}")
-    return products, containers, blocked_containers, blocked_for_ULD, placed_ulds, placed_products
+    # Return a flattened version of products for further processing
+    return flat_products, containers, blocked_containers, blocked_for_ULD, placed_ulds, placed_products
 
 def process_optimized(products, containers, blocked_containers, DC_total_volumes):
     """
