@@ -737,7 +737,7 @@ def create_container_summary_table(container_summary):
 
 
 def visualize_separate_containers_with_plotly(containers, placed_products, blocked_for_ULD):
-    colors = ['red', 'blue', 'green', 'orange', 'purple', 'yellow', 'pink', 'cyan', 'lime', 'magenta']
+    colors = ['#A97835', '#C08F4F', '#CD9F61', '#C2A574', '#D6B88A','#E6D3B3','#CBB994']
 
     for container in containers:
         # Initialize subplot with two columns
