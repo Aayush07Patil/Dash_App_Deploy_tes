@@ -1052,3 +1052,458 @@ def visualize_separate_containers_with_plotly(containers, placed_products, block
         
         # Show the figure
         fig.show()
+
+
+##################################################################################################################################
+
+
+
+def try_place_product_gravity_based(product, container, container_placed, occupied_volume, placed_products):
+    """
+    Modified placement algorithm that places products on the floor or on top of other products.
+    Prioritizes bottom-up placement to avoid "floating" products.
+    """
+    # Start time for this product placement attempt
+    start_time = time.time()
+    max_time = 2  # Maximum time to spend on a single product placement (seconds)
+    
+    # Get container dimensions once
+    c_length = math.floor(container['Length'])
+    c_width = math.floor(container['Width'])
+    c_height = math.floor(container['Height'])
+    
+    # Try all orientations
+    for l, w, h in get_orientations(product):
+        # Skip impossible orientations immediately
+        if l > c_length or w > c_width or h > c_height:
+            continue
+        
+        # Create a height map of the container
+        # This represents the highest point at each (x,y) coordinate
+        height_map = np.zeros((c_length + 1, c_width + 1))
+        
+        # Initialize height map with container floor (0)
+        # Account for irregular container shapes in the height map initialization
+        if container['SD'] == 'S':
+            if container['TB'] == 'B':
+                # Handle single slope at bottom
+                for x in range(c_length + 1):
+                    for y in range(c_width + 1):
+                        if y > container['Widthx']:
+                            # Area with reduced height
+                            height_map[x, y] = container['Height'] - container['Heightx']
+            elif container['TB'] == 'T':
+                # Handle single slope at top (no change to initial height map)
+                pass
+        elif container['SD'] == 'D':
+            if container['TB'] == 'B':
+                # Handle double slope at bottom
+                width_small = (container['Width'] - container['Widthx']) / 2
+                for x in range(c_length + 1):
+                    for y in range(c_length + 1):
+                        if y < width_small or y > container['Width'] - width_small:
+                            # Areas with reduced height
+                            height_map[x, y] = container['Height'] - container['Heightx']
+            elif container['TB'] == 'T':
+                # Handle double slope at top (no change to initial height map)
+                pass
+        
+        # Update height map with already placed products
+        for p in container_placed:
+            px, py, pz, pl, pw, ph = p['position']
+            for dx in range(math.floor(pl)):
+                for dy in range(math.floor(pw)):
+                    if 0 <= px + dx < c_length + 1 and 0 <= py + dy < c_width + 1:
+                        height_map[px + dx, py + dy] = max(height_map[px + dx, py + dy], pz + ph)
+        
+        # Grid search for valid placement positions - prioritize by height
+        valid_positions = []
+        
+        # Step size for grid search - can be increased for larger containers to improve performance
+        step = 1  
+        
+        for x in range(0, c_length - math.floor(l) + 1, step):
+            # Check timeout to avoid spending too much time on hard-to-place products
+            if time.time() - start_time > max_time:
+                print(f"Timeout for product {product['id']}")
+                break
+                
+            for y in range(0, c_width - math.floor(w) + 1, step):
+                # Find the maximum height in the region where the product would be placed
+                # This ensures the product is supported from below
+                base_z = 0
+                for dx in range(math.floor(l)):
+                    for dy in range(math.floor(w)):
+                        if 0 <= x + dx < c_length + 1 and 0 <= y + dy < c_width + 1:
+                            base_z = max(base_z, height_map[x + dx, y + dy])
+                
+                # If product would exceed container height, skip this position
+                if base_z + h > c_height:
+                    continue
+                
+                # Check if product fits at this position
+                if fits_optimized(container, container_placed, x, y, base_z, l, w, h):
+                    # Store valid position along with base height for sorting
+                    valid_positions.append((x, y, base_z, l, w, h))
+        
+        # Sort positions by base_z (ascending) to prioritize lower positions
+        # This ensures we fill from bottom to top
+        valid_positions.sort(key=lambda pos: pos[2])
+        
+        # Use the best position if any are found
+        if valid_positions:
+            x, y, z, l, w, h = valid_positions[0]  # Take the lowest valid position
+            
+            # Place the product
+            product_data = {
+                'id': product['id'],
+                'Length': l,
+                'Breadth': w,
+                'Height': h,
+                'position': (x, y, z, l, w, h),
+                'container': container['id'],
+                'Volume': product['Volume'],
+                'DestinationCode': product['DestinationCode'],
+                'awb_number': product['awb_number']
+            }
+            container_placed.append(product_data)
+            placed_products.append(product_data)
+            occupied_volume += product['Volume']
+            remaining_volume_percentage = round(((container['Volume'] - occupied_volume) * 100 / container['Volume']), 2)
+            print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage}%")
+            return True
+    
+    return False
+
+def pack_with_target_utilization(containers, products, blocked_containers, DC_total_volumes, placed_products, target_utilization=0.8):
+    """
+    Pack products with a target utilization percentage for each container.
+    Uses gravity-based placement to avoid floating products.
+    """
+    remaining_products = products[:]
+    used_containers = []
+    missed_product_count = 0
+    running_volume_sum = 0
+    
+    if products:
+        destination_code = products[0]['DestinationCode']
+        print(f"\nProcessing Destination Code: {destination_code}")
+    else:
+        destination_code = 'ULDs'
+    
+    # Pre-compute container volumes for faster access
+    container_volumes = {container['id']: container['Volume'] for container in containers}
+    
+    for container in containers:
+        print(f"Placing products in container {container['id']} ({container['ULDCategory']})")
+        container_placed = []  # Products placed in the current container
+        container_volume = container['Volume']
+        occupied_volume = 0
+        target_volume = container_volume * target_utilization
+
+        # Process each remaining product - more efficient with index-based iteration
+        i = 0
+        while i < len(remaining_products):
+            product = remaining_products[i]
+            
+            # Skip products that have already been placed
+            if product in placed_products:
+                i += 1
+                continue
+                
+            dc_volume = DC_total_volumes.get(product['DestinationCode'], 0)
+            
+            # Check volume constraints
+            if not (dc_volume - running_volume_sum) > 0.99 * container_volume:
+                print("Volume constraint not satisfied, stopping process.")
+                blocked_containers.extend(used_containers)
+                remaining_containers = [c for c in containers if c not in blocked_containers]
+                running_volume_sum = 0
+                return placed_products, remaining_products, blocked_containers, remaining_containers
+            
+            # Stop if target utilization reached
+            if occupied_volume >= target_volume:
+                print(f"Target utilization of {target_utilization*100}% reached for container {container['id']}")
+                if container not in used_containers:
+                    used_containers.append(container)
+                break
+                
+            if missed_product_count >= 3:
+                print("Too many missed products. Blocking containers.")
+                blocked_containers.extend(used_containers)
+                break
+
+            # Use gravity-based placement instead of original algorithm
+            placed = try_place_product_gravity_based(product, container, container_placed, occupied_volume, placed_products)
+            
+            if placed:
+                running_volume_sum += product['Volume']
+                remaining_products.pop(i)  # More efficient than remove() for large lists
+                if container not in used_containers:
+                    used_containers.append(container)
+            else:
+                print(f"Product {product['id']} could not be placed in container {container['id']}.")
+                missed_product_count += 1
+                i += 1
+                
+        if not remaining_products:
+            print(f"All products have been placed for {destination_code}")
+            running_volume_sum = 0
+            blocked_containers.extend(used_containers)
+            break
+            
+        # Reverse remaining products for next iteration
+        if missed_product_count >= 3:
+            print("Reversing product list for retry.")
+            remaining_products = remaining_products[::-1]
+            missed_product_count = 0
+            
+    remaining_containers = [c for c in containers if c not in blocked_containers]
+    return placed_products, remaining_products, blocked_containers, remaining_containers
+
+def process_gravity_based(products, containers, blocked_containers, DC_total_volumes, target_utilization=0.8):
+    """
+    Main process function using gravity-based placement.
+    Prioritizes ULDs, then destination-based grouping for first pass, and ignores destinations in second pass.
+    
+    Args:
+        products: List or nested list of products to place
+        containers: List of containers available for placement
+        blocked_containers: List of containers that are already blocked
+        DC_total_volumes: Dictionary of total volumes per destination code
+        target_utilization: Target container fill percentage (0.0-1.0)
+        
+    Returns:
+        tuple: (placed, unplaced, blocked_for_ULD, placed_ulds)
+    """
+    start_time = time.time()
+    containers_tp = containers[:]  # Make a copy of containers
+    blocked_for_ULD = []
+    placed = []
+    placed_products = []
+    unplaced = []
+    placed_ulds = []
+    
+    # ---------- FIRST PASS: BLOCK ULD CONTAINERS ----------
+    # Preprocess containers and products to block ULD-related containers
+    products, containers_tp, blocked_containers, blocked_for_ULD, placed_ulds, placed_products = preprocess_containers_and_products_optimized(
+        products, containers_tp, blocked_for_ULD, placed_ulds, placed_products
+    )
+    
+    # ---------- FIRST PASS: PLACE PRODUCTS BY DESTINATION ----------
+    # Place products using gravity-based approach with target utilization
+    # This pass respects destination grouping
+    placed_products, remaining_products, blocked_containers, containers_tp = pack_with_target_utilization(
+        containers_tp, products, blocked_containers, DC_total_volumes, placed_products, target_utilization
+    )
+    
+    # Copy placed products to main lists - use more efficient operations
+    placed_ids = {p['id'] for p in placed}  # Use set for O(1) lookups
+    for item in placed_products:
+        if item['id'] not in placed_ids:
+            placed.append(item)
+            placed_ids.add(item['id'])
+    
+    # Only append items to unplaced list if their ID doesn't already exist
+    unplaced_ids = set()
+    for item in remaining_products:
+        if item['id'] not in placed_ids and item['id'] not in unplaced_ids:
+            unplaced.append(item)
+            unplaced_ids.add(item['id'])
+    
+    # ---------- SECOND PASS: PLACE REMAINING PRODUCTS ----------
+    print("\nAttempting to place unplaced products in remaining spaces...")
+    
+    # Sort by volume for better packing
+    placed = sorted(placed, key=lambda x: x['Volume'])
+    used_container = []
+    
+    # Filter containers more efficiently using set operations
+    blocked_ids = {c['id'] for c in blocked_for_ULD}
+    containers_tp = [c for c in containers if c['id'] not in blocked_ids]
+    
+    # Filter out containers that are already near target utilization
+    containers_to_remove = []
+    container_products = {}  # Cache product lists by container
+    for container in containers_tp:
+        placed_products_in_container = [item for item in placed if item["container"] == container["id"]]
+        container_products[container['id']] = placed_products_in_container
+        total_volume_of_placed_products = sum(item["Volume"] for item in placed_products_in_container)
+        if total_volume_of_placed_products > target_utilization * container['Volume']:
+            containers_to_remove.append(container)
+    
+    # Remove containers in a separate step to avoid modifying while iterating
+    for container in containers_to_remove:
+        if container in containers_tp:  # Check before removing
+            containers_tp.remove(container)
+    
+    if containers_tp:
+        # Sort unplaced products by volume (largest first for second pass)
+        # This ensures larger products get priority for placement
+        unplaced = sorted(unplaced, key=lambda x: x["Volume"], reverse=True)
+        
+        # Prioritize containers for second pass
+        containers_tp = prioritize_containers_for_second_pass(containers_tp, placed, target_utilization)
+        
+        print(f"\nTrying to place {len(unplaced)} unplaced products in any container with available space")
+        
+        # Process each container in priority order
+        for container in containers_tp:
+            placed_products_in_container = container_products.get(container['id'], [])
+            total_volume_of_placed_products = sum(item["Volume"] for item in placed_products_in_container)
+            container_volume = container['Volume']
+            occupied_volume = total_volume_of_placed_products
+            available_volume = (target_utilization * container_volume) - occupied_volume
+            
+            # Skip containers that are already at or beyond target utilization
+            if occupied_volume >= target_utilization * container_volume:
+                print(f"Skipping container {container['id']} - Already at target utilization: {(occupied_volume/container_volume)*100:.1f}%")
+                continue
+                
+            print(f"Trying container {container['id']} - Current utilization: {(occupied_volume/container_volume)*100:.1f}%, Available: {available_volume:.2f} cubic units")
+            
+            # Process products by volume (largest first)
+            missed_products_count = 0
+            i = 0
+            while i < len(unplaced) and missed_products_count < 3:
+                product = unplaced[i]
+                
+                # Skip product if it would exceed target utilization
+                if product['Volume'] > available_volume:
+                    print(f"Product {product['id']} too large for remaining space in container {container['id']}.")
+                    i += 1
+                    continue
+                
+                placed_ = try_place_product_gravity_based(product, container, placed_products_in_container, occupied_volume, placed)
+                
+                if placed_:
+                    occupied_volume += product['Volume']
+                    available_volume -= product['Volume']
+                    
+                    # Update remaining volume percentage for logging
+                    remaining_volume_percentage = ((container_volume - occupied_volume) * 100 / container_volume)
+                    print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage:.2f}%")
+                    
+                    unplaced.pop(i)  # Remove without shifting index
+                    if container not in used_container:
+                        used_container.append(container)
+                        
+                    # If available volume is now too small, move to next container
+                    if available_volume < 0.01:  # Small threshold for floating-point comparison
+                        print(f"Container {container['id']} has reached target utilization.")
+                        break
+                else:
+                    print(f"Product {product['id']} could not be placed in container {container['id']}.")
+                    missed_products_count += 1
+                    i += 1  # Move to next product
+                    
+                # Reset counter and flip list if too many misses
+                if missed_products_count >= 3:
+                    print(f"\nRearranging product list after {missed_products_count} misses\n")
+                    unplaced = unplaced[::-1]
+                    missed_products_count = 0
+                    i = 0  # Start from beginning of reversed list
+            
+            # If all products placed, exit the loop
+            if not unplaced:
+                print("All products have been placed.")
+                break
+            
+            # Log current utilization before moving to next container
+            new_utilization = occupied_volume / container_volume
+            print(f"Moving to next container. Container {container['id']} current utilization: {new_utilization*100:.1f}%")
+    
+    end_time = time.time()
+    print(f"Optimization process completed in {end_time - start_time:.2f} seconds")
+    print(f"Placed products: {len(placed)}, Unplaced products: {len(unplaced)}")
+    
+    return placed, unplaced, blocked_for_ULD, placed_ulds
+
+def prioritize_containers_for_second_pass(containers, placed_products, target_utilization=0.8):
+    """
+    Prioritize containers for the second pass:
+    1. First prioritize containers that already have products (partially filled)
+    2. Then prioritize based on available space and shape complexity
+    
+    Args:
+        containers (list): List of available containers
+        placed_products (list): Products already placed
+        target_utilization (float): Target utilization percentage
+        
+    Returns:
+        list: Containers sorted by priority for second pass placement
+    """
+    container_metrics = {}
+    
+    # First, identify containers that already have products
+    containers_with_products = {}
+    for product in placed_products:
+        container_id = product['container']
+        if container_id not in containers_with_products:
+            containers_with_products[container_id] = []
+        containers_with_products[container_id].append(product)
+    
+    # Calculate metrics for each container
+    for container in containers:
+        container_id = container['id']
+        
+        # Get products already placed in this container
+        products_in_container = containers_with_products.get(container_id, [])
+        
+        # Calculate current volume utilization
+        total_volume_placed = sum(p['Volume'] for p in products_in_container)
+        container_volume = container['Volume']
+        current_utilization = total_volume_placed / container_volume if container_volume > 0 else 1.0
+        
+        # Calculate available volume (as percentage of target)
+        available_volume_percent = max(0, (target_utilization - current_utilization)) / target_utilization
+        
+        # Calculate absolute available volume
+        available_volume = max(0, (target_utilization * container_volume) - total_volume_placed)
+        
+        # Calculate container "openness" - prefer containers with regular shapes
+        # Lower values indicate more regular shapes (easier to pack)
+        if container['SD'] == 'S' and container['TB'] == 'B':
+            shape_complexity = 1
+        elif container['SD'] == 'D':
+            shape_complexity = 2
+        else:
+            shape_complexity = 0
+            
+        # Primary score based on whether container already has products
+        has_products = 1 if container_id in containers_with_products else 0
+        
+        # Secondary score based on available space and shape complexity
+        secondary_score = (available_volume_percent * 0.9) + ((3 - shape_complexity) / 3 * 0.1)
+        
+        # Combined score prioritizes containers with products first, then by space and shape
+        # Use high multiplier (100) to ensure containers with products always come first
+        score = (has_products * 100) + secondary_score
+        
+        container_metrics[container_id] = {
+            'container': container,
+            'has_products': has_products,
+            'current_utilization': current_utilization,
+            'available_volume_percent': available_volume_percent,
+            'available_volume': available_volume,
+            'score': score
+        }
+    
+    # Sort containers by composite score (descending)
+    sorted_containers = sorted(
+        containers, 
+        key=lambda c: container_metrics.get(c['id'], {'score': 0})['score'], 
+        reverse=True
+    )
+    
+    # Print container prioritization for debugging
+    print("\nContainer prioritization for second pass:")
+    for c in sorted_containers[:5]:  # Show top 5
+        metrics = container_metrics[c['id']]
+        status = "Has products" if metrics['has_products'] == 1 else "Empty"
+        print(f"Container {c['id']} - {status}, " + 
+              f"Utilization: {metrics['current_utilization']*100:.1f}%, " +
+              f"Available volume: {metrics['available_volume']:.2f}, " +
+              f"Score: {metrics['score']:.3f}")
+    
+    return sorted_containers
