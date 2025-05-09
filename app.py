@@ -325,17 +325,47 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
             destination_codes_text = ', '.join(destination_codes)  # Convert the set to a comma-separated string
             title_text = f"Container {container['ULDCategory']} - {container['id']} and Placed Products<br>Destinations: {destination_codes_text}"
 
-        # Update layout with the title
+        # Update layout with the title - NO GRID, NO AXES, NO BACKGROUND
         fig.update_layout(
             scene=dict(
-                xaxis=dict(nticks=10, title='Length'),
-                yaxis=dict(nticks=10, title='Width'),
-                zaxis=dict(nticks=10, title='Height'),
-                aspectratio=aspect_ratio
+                xaxis=dict(
+                    visible=False,  # Hide x-axis completely
+                    showgrid=False,
+                    showbackground=False,
+                    showaxeslabels=False,
+                    showticklabels=False,
+                    showspikes=False,
+                    showline=False,
+                    zeroline=False
+                ),
+                yaxis=dict(
+                    visible=False,  # Hide y-axis completely
+                    showgrid=False,
+                    showbackground=False,
+                    showaxeslabels=False,
+                    showticklabels=False,
+                    showspikes=False,
+                    showline=False,
+                    zeroline=False
+                ),
+                zaxis=dict(
+                    visible=False,  # Hide z-axis completely
+                    showgrid=False,
+                    showbackground=False,
+                    showaxeslabels=False,
+                    showticklabels=False,
+                    showspikes=False,
+                    showline=False,
+                    zeroline=False
+                ),
+                aspectratio=aspect_ratio,
+                bgcolor='rgba(0,0,0,0)'  # Transparent scene background
             ),
-            title= title_text,
+            title=title_text,
             title_x=0.5,
-            margin=dict(l=0, r=0, t=0, b=0)  # Remove margins
+            margin=dict(l=0, r=0, t=40, b=0),  # Keep some top margin for the title
+            paper_bgcolor='rgba(0,0,0,0)',  # Transparent paper background
+            plot_bgcolor='rgba(0,0,0,0)'    # Transparent plot background
         )
 
     return fig
