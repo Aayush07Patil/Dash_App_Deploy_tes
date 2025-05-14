@@ -24,7 +24,7 @@ def main(palettes, cargo):
     start_time = time.time()
     
     # Flatten the cargo_list before processing, or let the function handle it
-    placed_products, unplaced_products, blocked_for_ULD, placed_ulds = fun.process_optimized(
+    placed_products, unplaced_products, blocked_for_ULD, placed_ulds = fun.process_gravity_based(
         cargo_list, containers, blocked_containers, volumes)
     
     print("placed_ulds")
