@@ -14,14 +14,14 @@ def convert_cms_to_inches(df, dimension_cols=['Length', 'Breadth', 'Height'], un
     Converts dimension columns from centimeters to inches for rows where the measurement unit is 'Cms'.
     """
     # Create a mask for rows that need conversion - compute once
-    mask = df[unit_col] == 'Inches'
+    mask = df[unit_col] == 'Cms'
     
     # Apply conversion to all relevant columns at once (reduces row lookups)
     for col in dimension_cols:
-        df.loc[mask, col] = df.loc[mask, col] * 2.54  # cm to inch
+        df.loc[mask, col] = df.loc[mask, col] / 2.54  # cm to inch
 
     # Update the unit
-    df.loc[mask, unit_col] = 'Cms'
+    df.loc[mask, unit_col] = 'Inches'
     
     return df
 
