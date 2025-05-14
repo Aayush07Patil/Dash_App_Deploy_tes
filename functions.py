@@ -1347,8 +1347,23 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
         
         print(f"\nTrying to place {len(unplaced)} unplaced products in any container with available space")
         
+        # Add global iteration limit to ensure termination
+        max_global_iterations = 100
+        global_iterations = 0
+        
+        # Track containers where products have been tried and failed
+        failed_product_container_pairs = set()
+        
         # Process each container in priority order
         for container in containers_tp:
+            if global_iterations >= max_global_iterations:
+                print(f"Reached maximum global iterations ({max_global_iterations}). Stopping further placement attempts.")
+                break
+                
+            # Limit attempts per container before moving on
+            max_container_attempts = 3
+            container_attempt_count = 0
+                
             placed_products_in_container = container_products.get(container['id'], [])
             total_volume_of_placed_products = sum(item["Volume"] for item in placed_products_in_container)
             container_volume = container['Volume']
@@ -1364,54 +1379,100 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
             
             # Process products by volume (largest first)
             missed_products_count = 0
-            i = 0
-            while i < len(unplaced) and missed_products_count < 3:
-                product = unplaced[i]
+            progress_made = True  # Flag to track if any progress was made in this container
+            
+            while (len(unplaced) > 0 and 
+                   missed_products_count < 3 and 
+                   progress_made and 
+                   container_attempt_count < max_container_attempts and
+                   global_iterations < max_global_iterations):
+                   
+                global_iterations += 1
+                progress_made = False  # Reset at the start of each iteration
                 
-                # Skip product if it would exceed target utilization
-                if product['Volume'] > available_volume:
-                    print(f"Product {product['id']} too large for remaining space in container {container['id']}.")
-                    i += 1
-                    continue
-                
-                placed_ = try_place_product_gravity_based(product, container, placed_products_in_container, occupied_volume, placed)
-                
-                if placed_:
-                    occupied_volume += product['Volume']
-                    available_volume -= product['Volume']
+                # Try each product with this container
+                i = 0
+                while i < len(unplaced):
+                    product = unplaced[i]
                     
-                    # Update remaining volume percentage for logging
-                    remaining_volume_percentage = ((container_volume - occupied_volume) * 100 / container_volume)
-                    print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage:.2f}%")
+                    # Skip if this product-container combination has already failed
+                    product_container_key = (product['id'], container['id'])
+                    if product_container_key in failed_product_container_pairs:
+                        i += 1
+                        continue
                     
-                    unplaced.pop(i)  # Remove without shifting index
-                    if container not in used_container:
-                        used_container.append(container)
+                    # Skip product if it would exceed target utilization
+                    if product['Volume'] > available_volume:
+                        print(f"Product {product['id']} too large for remaining space in container {container['id']}.")
+                        failed_product_container_pairs.add(product_container_key)
+                        i += 1
+                        continue
+                    
+                    placed_ = try_place_product_gravity_based(product, container, placed_products_in_container, occupied_volume, placed)
+                    
+                    if placed_:
+                        progress_made = True  # We made progress
+                        occupied_volume += product['Volume']
+                        available_volume -= product['Volume']
                         
-                    # If available volume is now too small, move to next container
-                    if available_volume < 0.01:  # Small threshold for floating-point comparison
-                        print(f"Container {container['id']} has reached target utilization.")
+                        # Update remaining volume percentage for logging
+                        remaining_volume_percentage = ((container_volume - occupied_volume) * 100 / container_volume)
+                        print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage:.2f}%")
+                        
+                        unplaced.pop(i)  # Remove without shifting index
+                        if container not in used_container:
+                            used_container.append(container)
+                            
+                        # If available volume is now too small, move to next container
+                        if available_volume < 0.01:  # Small threshold for floating-point comparison
+                            print(f"Container {container['id']} has reached target utilization.")
+                            break
+                    else:
+                        # Record the failed product-container pair
+                        failed_product_container_pairs.add(product_container_key)
+                        print(f"Product {product['id']} could not be placed in container {container['id']}.")
+                        missed_products_count += 1
+                        i += 1  # Move to next product
+                        
+                    # If we've hit our missed product limit, break and try a different arrangement
+                    if missed_products_count >= 3:
                         break
-                else:
-                    print(f"Product {product['id']} could not be placed in container {container['id']}.")
-                    missed_products_count += 1
-                    i += 1  # Move to next product
-                    
-                # Reset counter and flip list if too many misses
+                
+                # If no progress made in this loop iteration, count as a container attempt
+                if not progress_made:
+                    container_attempt_count += 1
+                    if container_attempt_count >= max_container_attempts:
+                        print(f"Moving to next container after {container_attempt_count} unsuccessful attempts with container {container['id']}")
+                        break
+                
+                # Reset missed product count and reverse the list if needed
                 if missed_products_count >= 3:
                     print(f"\nRearranging product list after {missed_products_count} misses\n")
-                    unplaced = unplaced[::-1]
+                    # Instead of just reversing, try a more sophisticated reordering
+                    # Shuffle products and then re-sort by different criteria
+                    import random
+                    random.shuffle(unplaced)
+                    # Alternate between volume-based and dimension-based sorting
+                    if container_attempt_count % 2 == 0:
+                        unplaced = sorted(unplaced, key=lambda x: x["Volume"], reverse=True)
+                    else:
+                        # Sort by sum of dimensions as an alternative strategy
+                        unplaced = sorted(unplaced, key=lambda x: x["Length"] + x["Breadth"] + x["Height"])
+                    
                     missed_products_count = 0
-                    i = 0  # Start from beginning of reversed list
-            
-            # If all products placed, exit the loop
-            if not unplaced:
-                print("All products have been placed.")
-                break
+                
+                # If all products placed, exit the loop
+                if not unplaced:
+                    print("All products have been placed.")
+                    break
             
             # Log current utilization before moving to next container
             new_utilization = occupied_volume / container_volume
             print(f"Moving to next container. Container {container['id']} current utilization: {new_utilization*100:.1f}%")
+            
+            # If all products placed, exit the outer loop as well
+            if not unplaced:
+                break
     
     end_time = time.time()
     print(f"Optimization process completed in {end_time - start_time:.2f} seconds")
