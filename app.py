@@ -500,6 +500,40 @@ def debug_info():
     # Add product columns if available
     if global_products_df is not None:
         info['product_columns'] = global_products_df.columns.tolist()
+
+      # NEW: Add simplified container list with essential info
+    if global_containers:
+        container_list = []
+        for container in global_containers:
+            # Create a simplified container summary
+            container_summary = {
+                'id': container['id'],
+                'ULDCategory': container['ULDCategory'],
+                'Type': container['Type'],
+                'Dimensions': f"{container['Length']}x{container['Width']}x{container['Height']}",
+                'Volume': round(container['Volume'], 2)
+            }
+            container_list.append(container_summary)
+        
+        # Sort by container ID for easier reading
+        container_list = sorted(container_list, key=lambda x: x['id'])
+        
+        # Add to main info
+        info['container_list'] = container_list
+    
+    # NEW: Add simplified list of blocked containers (if any)
+    if global_blocked_for_ULD:
+        blocked_list = []
+        for container in global_blocked_for_ULD:
+            blocked_summary = {
+                'id': container['id'],
+                'ULDCategory': container['ULDCategory'],
+                'Type': container['Type']
+            }
+            blocked_list.append(blocked_summary)
+        
+        info['blocked_container_list'] = blocked_list
+    
     
     return jsonify(info)
 
