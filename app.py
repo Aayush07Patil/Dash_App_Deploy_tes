@@ -338,6 +338,36 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
             margin=dict(l=0, r=0, t=0, b=0)  # Remove margins
         )
 
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(
+                    nticks=10, 
+                    title='Length',
+                    showgrid=False,
+                    showbackground=False  # Hide axis background
+                ),
+                yaxis=dict(
+                    nticks=10, 
+                    title='Width',
+                    showgrid=False,
+                    showbackground=False  # Hide axis background
+                ),
+                zaxis=dict(
+                    nticks=10, 
+                    title='Height',
+                    showgrid=False,
+                    showbackground=False  # Hide axis background
+                ),
+                aspectratio=aspect_ratio,
+                bgcolor='rgba(0,0,0,0)'  # Transparent background
+            ),
+            title=title_text,
+            title_x=0.5,
+            margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor='rgba(0,0,0,0)',  # Transparent paper background
+            plot_bgcolor='rgba(0,0,0,0)'    # Transparent plot background
+        )
+
     return fig
 
 # Flask route to receive data from ASP.NET - MODIFIED WITH LOGGING
@@ -356,6 +386,15 @@ def update_data():
         # Log the data size
         logger.info(f"Received {len(data['containers'])} containers and {len(data['products'])} products")
         
+        for container in data['containers']:
+            if 'Volume' in container:
+                container['Volume'] = container['Volume'] * 1000000
+                
+        # Multiply volumes by 1,000,000 for products
+        for product in data['products']:
+            if 'Volume' in product:
+                product['Volume'] = product['Volume'] * 1000000
+
         # Save the full data to file for inspection
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_data')
         os.makedirs(data_dir, exist_ok=True)
@@ -503,7 +542,7 @@ app.layout = html.Div([
         id='interval-component',
         interval=2*1000,  # in milliseconds
         n_intervals=0,
-        max_intervals=3  # Stop refreshing after 3 intervals
+        max_intervals=0  # Stop refreshing after 3 intervals
     )
 ])
 
