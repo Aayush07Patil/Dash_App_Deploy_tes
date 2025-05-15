@@ -1182,8 +1182,6 @@ def pack_with_target_utilization(containers, products, blocked_containers, DC_to
     """
     remaining_products = products[:]
     used_containers = []
-    missed_product_count = 0
-    running_volume_sum = 0
     
     if products:
         destination_code = products[0]['DestinationCode']
@@ -1191,17 +1189,14 @@ def pack_with_target_utilization(containers, products, blocked_containers, DC_to
     else:
         destination_code = 'ULDs'
     
-    # Pre-compute container volumes for faster access
-    container_volumes = {container['id']: container['Volume'] for container in containers}
-    
     for container in containers:
         print(f"Placing products in container {container['id']} ({container['ULDCategory']})")
         container_placed = []  # Products placed in the current container
         container_volume = container['Volume']
         occupied_volume = 0
-        target_volume = container_volume * target_utilization
+        target_volume = container_volume * target_utilization  # 80% target
 
-        # Process each remaining product - more efficient with index-based iteration
+        # Process each remaining product
         i = 0
         while i < len(remaining_products):
             product = remaining_products[i]
@@ -1210,55 +1205,46 @@ def pack_with_target_utilization(containers, products, blocked_containers, DC_to
             if product in placed_products:
                 i += 1
                 continue
-                
-            dc_volume = DC_total_volumes.get(product['DestinationCode'], 0)
             
-            # Check volume constraints
-            if not (dc_volume - running_volume_sum) > 0.99 * container_volume:
-                print("Volume constraint not satisfied, stopping process.")
-                blocked_containers.extend(used_containers)
-                remaining_containers = [c for c in containers if c not in blocked_containers]
-                running_volume_sum = 0
-                return placed_products, remaining_products, blocked_containers, remaining_containers
-            
-            # Stop if target utilization reached
-            if occupied_volume >= target_volume:
-                print(f"Target utilization of {target_utilization*100}% reached for container {container['id']}")
-                if container not in used_containers:
-                    used_containers.append(container)
-                break
+            # Check if adding this product would exceed the target utilization
+            # Add a small buffer (0.01) to account for floating point errors
+            if occupied_volume + product['Volume'] > target_volume + 0.01:
+                print(f"Adding product {product['id']} would exceed target utilization of {target_utilization*100}%")
+                print(f"Current: {occupied_volume}/{container_volume} ({occupied_volume/container_volume*100:.2f}%)")
+                print(f"Product volume: {product['Volume']}")
+                print(f"Moving to next container")
+                break  # Stop placing products in this container
                 
-            if missed_product_count >= 3:
-                print("Too many missed products. Blocking containers.")
-                blocked_containers.extend(used_containers)
-                break
-
-            # Use gravity-based placement instead of original algorithm
+            # Try to place the product
             placed = try_place_product_gravity_based(product, container, container_placed, occupied_volume, placed_products)
             
             if placed:
-                running_volume_sum += product['Volume']
-                remaining_products.pop(i)  # More efficient than remove() for large lists
+                print(f"Placed product {product['id']} in container {container['id']}")
+                occupied_volume += product['Volume']
+                utilization = occupied_volume / container_volume * 100
+                print(f"Container utilization: {utilization:.2f}%")
+                
+                remaining_products.pop(i)  # Remove from remaining products
                 if container not in used_containers:
                     used_containers.append(container)
             else:
-                print(f"Product {product['id']} could not be placed in container {container['id']}.")
-                missed_product_count += 1
-                i += 1
+                print(f"Could not place product {product['id']} in container {container['id']}")
+                i += 1  # Try the next product
                 
+            # If we've reached target utilization, move to the next container
+            if occupied_volume >= target_volume:
+                print(f"Reached target utilization of {target_utilization*100}% for container {container['id']}")
+                print(f"Utilization: {occupied_volume/container_volume*100:.2f}%")
+                break
+        
+        # If we've placed all products, we're done
         if not remaining_products:
-            print(f"All products have been placed for {destination_code}")
-            running_volume_sum = 0
-            blocked_containers.extend(used_containers)
+            print(f"All products placed for destination {destination_code}")
             break
-            
-        # Reverse remaining products for next iteration
-        if missed_product_count >= 3:
-            print("Reversing product list for retry.")
-            remaining_products = remaining_products[::-1]
-            missed_product_count = 0
-            
-    remaining_containers = [c for c in containers if c not in blocked_containers]
+    
+    # Return remaining containers
+    remaining_containers = [c for c in containers if c not in used_containers and c not in blocked_containers]
+    
     return placed_products, remaining_products, blocked_containers, remaining_containers
 
 def process_gravity_based(products, containers, blocked_containers, DC_total_volumes, target_utilization=0.8):
