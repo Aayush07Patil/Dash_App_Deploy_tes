@@ -18,7 +18,7 @@ def convert_cms_to_inches(df, dimension_cols=['Length', 'Breadth', 'Height'], un
     
     # Apply conversion to all relevant columns at once (reduces row lookups)
     for col in dimension_cols:
-        df.loc[mask, col] = df.loc[mask, col] / 2.54  # cm to inch
+        df.loc[mask, col] = df.loc[mask, col].astype(float) / 2.54  # cm to inch
 
     # Update the unit
     df.loc[mask, unit_col] = 'Inches'
@@ -1365,6 +1365,12 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
             # Process products by volume (largest first)
             missed_products_count = 0
             i = 0
+            
+            # NEW: Counter to prevent infinite loop
+            max_retry_attempts = 5
+            retry_count = 0
+            product_positions_tried = set()  # Track which products were already tried
+            
             while i < len(unplaced) and missed_products_count < 3:
                 product = unplaced[i]
                 
@@ -1373,6 +1379,15 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
                     print(f"Product {product['id']} too large for remaining space in container {container['id']}.")
                     i += 1
                     continue
+                
+                # Check if we've already tried this product in this position
+                product_position_key = f"{product['id']}_{i}"
+                if product_position_key in product_positions_tried:
+                    # We've already tried this product at this position
+                    i += 1
+                    continue
+                    
+                product_positions_tried.add(product_position_key)
                 
                 placed_ = try_place_product_gravity_based(product, container, placed_products_in_container, occupied_volume, placed)
                 
@@ -1388,6 +1403,9 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
                     if container not in used_container:
                         used_container.append(container)
                         
+                    # Reset tracking sets when products are successfully placed
+                    product_positions_tried = set()
+                    
                     # If available volume is now too small, move to next container
                     if available_volume < 0.01:  # Small threshold for floating-point comparison
                         print(f"Container {container['id']} has reached target utilization.")
@@ -1399,12 +1417,20 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
                     
                 # Reset counter and flip list if too many misses
                 if missed_products_count >= 3:
-                    print(f"\nRearranging product list after {missed_products_count} misses\n")
+                    retry_count += 1
+                    if retry_count >= max_retry_attempts:
+                        print(f"\nCannot place remaining products in container {container['id']} after {max_retry_attempts} attempts.")
+                        print(f"Moving to next container.\n")
+                        break  # Exit the while loop and move to next container
+                        
+                    print(f"\nRearranging product list after {missed_products_count} misses (Attempt {retry_count}/{max_retry_attempts})\n")
                     unplaced = unplaced[::-1]
                     missed_products_count = 0
                     i = 0  # Start from beginning of reversed list
+                    # Clear the tracking set when rearranging
+                    product_positions_tried = set()
             
-            # If all products placed, exit the loop
+            # Break out early if all products placed
             if not unplaced:
                 print("All products have been placed.")
                 break
