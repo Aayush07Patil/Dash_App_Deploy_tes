@@ -13,6 +13,9 @@ import logging
 import json
 import datetime
 import functions as fun
+import threading
+import time
+import requests
 
 # Set up logging
 logging.basicConfig(
@@ -619,8 +622,30 @@ def update_container_visualization(search, n_intervals):
     logger.info("Visualization created successfully")
     return fig
 
+def start_self_ping():
+    """Start a background thread that pings the app to keep it responsive"""
+    def ping_thread():
+        app_url = os.environ.get('WEBSITE_HOSTNAME', 'your-app-name.azurewebsites.net')
+        while True:
+            try:
+                # Ping the health check endpoint every 5 minutes
+                requests.get(f"https://{app_url}/api/healthcheck", timeout=10)
+                logger.info("Self-ping completed successfully")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)}")
+            
+            # Sleep for 5 minutes
+            time.sleep(300)
+    
+    # Start the thread
+    thread = threading.Thread(target=ping_thread)
+    thread.daemon = True
+    thread.start()
+    logger.info("Self-ping thread started")
+
 # Run the Dash app - modified for Azure
 if __name__ == '__main__':
     logger.info("Starting Dash application")
+    start_self_ping()
     app.run_server(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8050)))
     #app.run(debug=False)
