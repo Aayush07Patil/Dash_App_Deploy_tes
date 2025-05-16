@@ -405,6 +405,33 @@ def update_data():
         if data['products']:
             logger.info(f"First product sample: {json.dumps(data['products'][0], indent=2)}")
         
+        # *** NEW CODE: Sort containers by volume (largest first) ***
+        if data['containers']:
+            # Ensure all containers have a Volume field
+            for container in data['containers']:
+                if 'Volume' not in container or container['Volume'] is None:
+                    # Calculate volume if not present
+                    l = container.get('Length', 0)
+                    w = container.get('Width', 0)
+                    h = container.get('Height', 0)
+                    container['Volume'] = l * w * h
+            
+            # Sort containers by volume (largest first)
+            data['containers'] = sorted(data['containers'], key=lambda x: x.get('Volume', 0), reverse=True)
+            logger.info(f"Sorted {len(data['containers'])} containers by volume (largest first)")
+            
+            # Log top 3 and bottom 3 containers by volume for verification
+            if len(data['containers']) > 6:
+                logger.info("Top 3 containers by volume:")
+                for i in range(3):
+                    logger.info(f"#{i+1}: ID={data['containers'][i].get('id', 'unknown')}, " +
+                              f"Volume={data['containers'][i].get('Volume', 0)}")
+                
+                logger.info("Bottom 3 containers by volume:")
+                for i in range(3):
+                    logger.info(f"#{i+1}: ID={data['containers'][-(i+1)].get('id', 'unknown')}, " +
+                              f"Volume={data['containers'][-(i+1)].get('Volume', 0)}")
+        
         # Convert to dataframes
         global_containers_df = pd.DataFrame(data['containers'])
         global_products_df = pd.DataFrame(data['products'])
