@@ -1343,7 +1343,7 @@ def process_gravity_based(products, containers, blocked_containers, DC_total_vol
         unplaced = sorted(unplaced, key=lambda x: x["Volume"], reverse=True)
         
         # Prioritize containers for second pass
-        containers_tp = prioritize_containers_for_second_pass_new(containers_tp, placed, target_utilization)
+        containers_tp = prioritize_containers_for_second_pass(containers_tp, placed, target_utilization)
         
         print(f"\nTrying to place {len(unplaced)} unplaced products in any container with available space")
         
@@ -1519,7 +1519,7 @@ def prioritize_containers_for_second_pass(containers, placed_products, target_ut
     sorted_containers = sorted(
         containers, 
         key=lambda c: container_metrics.get(c['id'], {'score': 0})['score'], 
-        reverse=False
+        reverse=True
     )
     
     # Print container prioritization for debugging
@@ -1533,81 +1533,3 @@ def prioritize_containers_for_second_pass(containers, placed_products, target_ut
               f"Score: {metrics['score']:.3f}")
     
     return sorted_containers
-
-def prioritize_containers_for_second_pass_new(containers, placed_products, target_utilization=0.8):
-    """
-    Prioritize containers for the second pass:
-    1. First containers that already have products
-    2. Then by total volume (larger containers first)
-    
-    Args:
-        containers: List of container dictionaries
-        placed_products: List of products already placed
-        target_utilization: Target utilization percentage (0.0-1.0)
-        
-    Returns:
-        List of containers sorted by priority
-    """
-    # Identify containers that already have products
-    containers_with_products = {}
-    container_ids_with_products = set()
-    
-    for product in placed_products:
-        container_id = product['container']
-        container_ids_with_products.add(container_id)
-        if container_id not in containers_with_products:
-            containers_with_products[container_id] = []
-        containers_with_products[container_id].append(product)
-    
-    # Split containers into two groups: with products and without products
-    containers_with_placed_products = []
-    empty_containers = []
-    
-    for container in containers:
-        container_id = container['id']
-        
-        if container_id in container_ids_with_products:
-            # Calculate current utilization
-            products_in_container = containers_with_products[container_id]
-            total_volume_placed = sum(p['Volume'] for p in products_in_container)
-            current_utilization = total_volume_placed / container['Volume'] if container['Volume'] > 0 else 1.0
-            available_volume = max(0, (target_utilization * container['Volume']) - total_volume_placed)
-            
-            containers_with_placed_products.append({
-                'id': container_id,
-                'container': container,
-                'utilization': current_utilization,
-                'volume': container['Volume'],
-                'available_volume': available_volume
-            })
-        else:
-            # Empty container
-            empty_containers.append({
-                'id': container_id,
-                'container': container,
-                'utilization': 0.0,
-                'volume': container['Volume'],
-                'available_volume': target_utilization * container['Volume']
-            })
-    
-    # Sort containers with products by volume (largest first)
-    containers_with_placed_products.sort(key=lambda x: x['volume'], reverse=True)
-    
-    # Sort empty containers by volume (largest first)
-    empty_containers.sort(key=lambda x: x['volume'], reverse=True)
-    
-    # Combine the two lists (containers with products come first)
-    sorted_container_data = containers_with_placed_products + empty_containers
-    
-    # Print container prioritization for debugging
-    print("\nContainer prioritization for second pass:")
-    for i, data in enumerate(sorted_container_data[:5]):  # Show top 5
-        c = data['container']
-        status = "Has products" if data['utilization'] > 0 else "Empty"
-        print(f"{i+1}. Container {c['id']} - {status}, " + 
-              f"Volume: {c['Volume']:.2f}, " +
-              f"Utilization: {data['utilization']*100:.2f}%, " +
-              f"Available: {data['available_volume']:.2f}")
-    
-    # Extract and return just the container objects in the prioritized order
-    return [data['container'] for data in sorted_container_data]
