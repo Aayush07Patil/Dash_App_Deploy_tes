@@ -380,54 +380,57 @@ def update_data():
     global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
     
     try:
-        # Log the request
-        logger.info(f"Received data from .NET frontend at {datetime.datetime.now()}")
-        
         # Get data from POST request
         data = request.get_json()
         
-        # Log the data size
-        logger.info(f"Received {len(data['containers'])} containers and {len(data['products'])} products")
-        
-        # Save the full data to file for inspection
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_data')
-        os.makedirs(data_dir, exist_ok=True)
-        
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        data_file = os.path.join(data_dir, f'data_{timestamp}.json')
-        
-        with open(data_file, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        logger.info(f"Saved received data to {data_file}")
-        
-        # Log sample of first container and product for quick inspection
-        if data['containers']:
-            logger.info(f"First container sample: {json.dumps(data['containers'][0], indent=2)}")
-        
-        if data['products']:
-            logger.info(f"First product sample: {json.dumps(data['products'][0], indent=2)}")
+        # Log data receipt immediately
+        logger.info(f"Received data from .NET frontend at {datetime.datetime.now()}")
         
         # Convert to dataframes
         global_containers_df = pd.DataFrame(data['containers'])
         global_products_df = pd.DataFrame(data['products'])
         
-        # Log dataframe columns
-        logger.info(f"Container DataFrame columns: {global_containers_df.columns.tolist()}")
-        logger.info(f"Product DataFrame columns: {global_products_df.columns.tolist()}")
-        
         # Reset the processed flag so we'll reprocess the data
         global_processed = False
         
-        # Process the data right away
-        logger.info("Starting data processing...")
-        ensure_data_processed()
-        logger.info(f"Data processing complete. Placed products: {len(global_placed_products)}")
+        # Save the full data to file
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_data')
+        os.makedirs(data_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        data_file = os.path.join(data_dir, f'data_{timestamp}.json')
+        with open(data_file, 'w') as f:
+            json.dump(data, f, indent=2)
         
-        return jsonify({'status': 'success'})
+        # Start a background thread for processing
+        processing_thread = threading.Thread(target=process_data_in_background)
+        processing_thread.daemon = True
+        processing_thread.start()
+        
+        return jsonify({'status': 'success', 'message': 'Data received, processing started'})
     except Exception as e:
         logger.error(f"Error processing data: {str(e)}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
+
+def process_data_in_background():
+    global global_containers_df, global_products_df, global_processed
+    global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
+    
+    try:
+        logger.info("Background processing started...")
+        
+        # Run your existing processing function
+        global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds = mn.main(
+            global_containers_df, global_products_df
+        )
+        global_processed = True
+        
+        logger.info(f"Background processing complete. Results: {len(global_placed_products)} placed products")
+    except Exception as e:
+        logger.error(f"Error in background processing: {str(e)}", exc_info=True)
+        # Initialize with empty results if processing fails
+        global_placed_products, global_containers = [], []
+        global_blocked_for_ULD, global_placed_ulds = [], []
+        global_processed = True  # Mark as processed to avoid repeated errors
 
 @app.server.route('/api/healthcheck', methods=['GET'])
 def health_check():
@@ -635,13 +638,24 @@ def start_self_ping():
                 logger.error(f"Self-ping failed: {str(e)}")
             
             # Sleep for 5 minutes
-            time.sleep(300)
+            time.sleep(120)
     
     # Start the thread
     thread = threading.Thread(target=ping_thread)
     thread.daemon = True
     thread.start()
     logger.info("Self-ping thread started")
+
+@app.server.route('/processing_status', methods=['GET'])
+def get_processing_status():
+    global global_processed
+    
+    status = 'complete' if global_processed else 'processing'
+    return jsonify({
+        'status': status,
+        'timestamp': datetime.datetime.now().isoformat(),
+        'placed_products_count': len(global_placed_products) if global_processed else 0
+    })
 
 # Run the Dash app - modified for Azure
 if __name__ == '__main__':
