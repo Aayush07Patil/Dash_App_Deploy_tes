@@ -426,6 +426,11 @@ def update_data():
         logger.error(f"Error processing data: {str(e)}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.server.route('/api/healthcheck', methods=['GET'])
+def health_check():
+    # Always return healthy response, even during processing
+    return jsonify({'status': 'healthy'}), 200
+
 # NEW COMBINED ENDPOINT: Get both container table and summary in one call
 @app.server.route('/get_container_data', methods=['GET'])
 def get_container_data():
