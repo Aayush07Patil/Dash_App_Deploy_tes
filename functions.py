@@ -92,7 +92,8 @@ def get_orientations(product):
     """
     # Cache dimensions to avoid repeated dictionary lookups
     l, b, h = product['Length'], product['Breadth'], product['Height']
-    return {(pl, pb, h) for pl, pb in permutations([l, b])}
+    #return {(pl, pb, h) for pl, pb in permutations([l, b])}
+    return {(l,b,h)}
 
 def fits_optimized(container, placed_products, x, y, z, l, w, h):
     """
