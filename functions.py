@@ -528,7 +528,7 @@ def process(products, containers, blocked_containers, DC_total_volumes):
     for container in containers_tp:
         placed_products_in_container = [item for item in placed if item["container"] == container["id"]]
         total_volume_of_placed_products = sum(item["Volume"] for item in placed_products_in_container)
-        if total_volume_of_placed_products >0.8*container['Volume']:
+        if total_volume_of_placed_products >1*container['Volume']:
             containers_tp.remove(container)
     
     if containers_tp:
