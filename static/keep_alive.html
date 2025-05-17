@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Keep Alive - Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status-container {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #e8f5e9;
+        }
+        .status {
+            font-weight: bold;
+        }
+        .processing {
+            color: #2196F3;
+        }
+        .idle {
+            color: #4CAF50;
+        }
+        .error {
+            color: #F44336;
+        }
+        .log {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+    </style>
+    <script>
+        // Array to store log messages
+        const logMessages = [];
+        
+        // Maximum number of log messages to display
+        const MAX_LOG_ENTRIES = 20;
+        
+        // Add a log message to the log container
+        function addLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logMessages.unshift(`[${timestamp}] ${message}`);
+            
+            // Keep only the most recent messages
+            if (logMessages.length > MAX_LOG_ENTRIES) {
+                logMessages.pop();
+            }
+            
+            // Update the log display
+            document.getElementById('log').innerHTML = logMessages.join('<br>');
+        }
+        
+        // Ping the app to keep it alive
+        function pingServer() {
+            fetch('/api/ping', { method: 'GET' })
+                .then(response => {
+                    if (response.ok) {
+                        addLog('Ping successful');
+                    } else {
+                        addLog('Ping returned non-200 status: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('last-ping').textContent = data.timestamp;
+                })
+                .catch(error => {
+                    addLog('Ping failed: ' + error);
+                    document.getElementById('last-ping').textContent = 'Failed';
+                });
+            
+            // Check processing status
+            fetch('/processing_status', { method: 'GET' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Status response not OK');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const statusElement = document.getElementById('status');
+                    const statusContainerElement = document.getElementById('status-container');
+                    
+                    // Update the displayed status
+                    if (data.is_processing) {
+                        statusElement.textContent = 'Processing: ' + data.progress + '%';
+                        statusElement.className = 'status processing';
+                        statusContainerElement.style.backgroundColor = '#e3f2fd'; // Light blue
+                    } else if (data.progress === -1) {
+                        statusElement.textContent = 'Error during processing';
+                        statusElement.className = 'status error';
+                        statusContainerElement.style.backgroundColor = '#ffebee'; // Light red
+                    } else {
+                        statusElement.textContent = 'Idle';
+                        statusElement.className = 'status idle';
+                        statusContainerElement.style.backgroundColor = '#e8f5e9'; // Light green
+                    }
+                    
+                    // Update additional status info
+                    document.getElementById('last-update').textContent = data.last_update || 'N/A';
+                    document.getElementById('placed-products').textContent = data.placed_products_count;
+                    
+                    addLog('Status check: ' + statusElement.textContent);
+                })
+                .catch(error => {
+                    addLog('Status check failed: ' + error);
+                    document.getElementById('status').textContent = 'Unknown';
+                    document.getElementById('status').className = 'status error';
+                });
+        }
+        
+        // Initial ping and then regular interval
+        window.onload = function() {
+            addLog('Keep-alive page initialized');
+            pingServer();
+            // Set interval to ping every 60 seconds (60,000 ms)
+            setInterval(pingServer, 60000);
+            // Update the ping countdown
+            setInterval(updateCountdown, 1000);
+        };
+        
+        // Countdown timer for next ping
+        let countdown = 60;
+        function updateCountdown() {
+            countdown = countdown - 1;
+            if (countdown <= 0) {
+                countdown = 60;
+            }
+            document.getElementById('countdown').textContent = countdown;
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard Keep-Alive Page</h1>
+        
+        <div id="status-container" class="status-container">
+            <h2>Current Status</h2>
+            <p>Processing Status: <span id="status" class="status">Checking...</span></p>
+            <p>Last Status Update: <span id="last-update">-</span></p>
+            <p>Placed Products: <span id="placed-products">0</span></p>
+        </div>
+        
+        <div>
+            <h2>Keep-Alive Status</h2>
+            <p>Next ping in <span id="countdown">60</span> seconds</p>
+            <p>Last successful ping: <span id="last-ping">None yet</span></p>
+            <p><em>This page helps keep your Azure Web App running by sending periodic pings. Leave it open in a browser tab to maintain connectivity.</em></p>
+        </div>
+        
+        <div>
+            <h2>Activity Log</h2>
+            <div id="log" class="log">Initializing...</div>
+        </div>
+    </div>
+</body>
+</html>
