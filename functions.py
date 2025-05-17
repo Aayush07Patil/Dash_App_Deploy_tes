@@ -1654,7 +1654,7 @@ def pack_products_sequentially(containers, products, blocked_containers, DC_tota
             dc_volume = DC_total_volumes.get(product['DestinationCode'], 0)
 
             # Check volume constraints
-            if not (dc_volume - running_volume_sum) > 0.8 * container_volume:
+            if not (dc_volume - running_volume_sum) > 1 * container_volume:
                 print("Volume constraint not satisfied, stopping process.")
                 blocked_containers.extend(used_containers)
                 remaining_containers = [c for c in containers if c not in blocked_containers]
