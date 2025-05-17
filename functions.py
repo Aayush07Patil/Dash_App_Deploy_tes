@@ -1710,8 +1710,8 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
     """
     for orientation in get_orientations(product):
         l, w, h = orientation
-        for y in range(0, math.floor(container['Width'] - w)):
-            for x in range(0, math.floor(container['Length'] - l)):
+        for y in range(0, math.floor(container['Width'] - l)):
+            for x in range(0, math.floor(container['Length'] - w)):
                 for z in range(0, math.floor(container['Height'] - h)):
                     if fits(container, container_placed, x, y, z, l, w, h):
                         product_data = {
