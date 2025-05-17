@@ -5,7 +5,7 @@ from dash.dependencies import Input, Output
 from collections import defaultdict
 import pandas as pd
 import numpy as np
-from flask import request, jsonify, send_from_directory
+from flask import request, jsonify
 from plotly.subplots import make_subplots
 from urllib.parse import parse_qs
 import os
@@ -16,7 +16,6 @@ import functions as fun
 import threading
 import time
 import requests
-import queue
 
 # Set up logging
 logging.basicConfig(
@@ -36,9 +35,6 @@ import main as mn
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
 server = app.server  # This line is crucial for Azure deployment
 
-# Track application start time
-app.config['start_time'] = time.time()
-
 # Initialize global variables to store data from .NET
 global_containers_df = None  # Will store the containers DataFrame 
 global_products_df = None    # Will store the products DataFrame
@@ -49,15 +45,6 @@ global_containers = []
 global_blocked_for_ULD = []
 global_placed_ulds = []
 global_processed = False    # Flag to track if data has been processed
-
-# Initialize processing queue and status
-processing_queue = queue.Queue()  # Queue for background processing
-processing_status = {
-    'is_processing': False,
-    'last_update': None,
-    'progress': 0,
-    'error': None
-}
 
 # Your existing visualization function
 def visualize_specific_containers_with_plotly(containers, placed_products, blocked_for_ULD, placed_ulds, container_number=None):
@@ -386,201 +373,64 @@ def visualize_specific_containers_with_plotly(containers, placed_products, block
 
     return fig
 
-# Background worker function
-def background_worker():
-    """Worker function that processes queued tasks in the background"""
-    global processing_queue, processing_status
-    global global_processed, global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
-    
-    logger.info("Background worker started")
-    
-    while True:
-        try:
-            # Get task from queue with a timeout (to allow checking for server shutdown)
-            try:
-                containers_df, products_df = processing_queue.get(timeout=5)
-                logger.info("Retrieved task from queue, starting processing")
-                
-                # Update status
-                processing_status['is_processing'] = True
-                processing_status['last_update'] = datetime.datetime.now().isoformat()
-                processing_status['progress'] = 10  # Starting progress
-                processing_status['error'] = None
-                
-                # Process the data
-                try:
-                    # Run your existing processing function
-                    placed_products, containers, blocked_for_ULD, placed_ulds = mn.main(
-                        containers_df, products_df
-                    )
-                    
-                    # Update status during processing
-                    processing_status['progress'] = 50
-                    processing_status['last_update'] = datetime.datetime.now().isoformat()
-                    
-                    # Update global variables with results
-                    global_placed_products = placed_products
-                    global_containers = containers
-                    global_blocked_for_ULD = blocked_for_ULD
-                    global_placed_ulds = placed_ulds
-                    global_processed = True
-                    
-                    # Final status update
-                    processing_status['is_processing'] = False
-                    processing_status['progress'] = 100
-                    processing_status['last_update'] = datetime.datetime.now().isoformat()
-                    
-                    logger.info(f"Processing complete. Results: {len(global_placed_products)} placed products, "
-                             f"{len(global_containers)} containers, {len(global_blocked_for_ULD)} blocked containers")
-                             
-                except Exception as e:
-                    logger.error(f"Error in data processing: {str(e)}", exc_info=True)
-                    # Initialize with empty results if processing fails
-                    global_placed_products, global_containers = [], []
-                    global_blocked_for_ULD, global_placed_ulds = [], []
-                    global_processed = True  # Mark as processed to avoid repeated errors
-                    
-                    # Update status for error
-                    processing_status['is_processing'] = False
-                    processing_status['progress'] = -1  # Use -1 to indicate error
-                    processing_status['last_update'] = datetime.datetime.now().isoformat()
-                    processing_status['error'] = str(e)
-                
-                # Mark task as done
-                processing_queue.task_done()
-                
-            except queue.Empty:
-                # No tasks in queue, continue the loop
-                pass
-                
-        except Exception as e:
-            logger.error(f"Error in background worker loop: {str(e)}", exc_info=True)
-            time.sleep(5)  # Sleep to avoid tight loop in case of persistent errors
-
-def ensure_background_worker_running():
-    """Ensures a background worker is running"""
-    for thread in threading.enumerate():
-        if thread.name == 'background_worker':
-            return
-    
-    # If we get here, no worker thread is running, so start one
-    worker_thread = threading.Thread(target=background_worker, name='background_worker', daemon=True)
-    worker_thread.start()
-    logger.info("Started new background worker thread")
-
-# Flask route to receive data from ASP.NET - MODIFIED WITH BACKGROUND PROCESSING
+# Flask route to receive data from ASP.NET - MODIFIED WITH LOGGING
 @app.server.route('/update_data', methods=['POST'])
 def update_data():
     global global_containers_df, global_products_df, global_processed
-    global processing_status
+    global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
     
     try:
-        # Log the request
-        logger.info(f"Received data from .NET frontend at {datetime.datetime.now()}")
-        
         # Get data from POST request
         data = request.get_json()
         
-        # Log the data size
-        logger.info(f"Received {len(data['containers'])} containers and {len(data['products'])} products")
-        
-        # Save the full data to file for inspection
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_data')
-        os.makedirs(data_dir, exist_ok=True)
-        
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        data_file = os.path.join(data_dir, f'data_{timestamp}.json')
-        
-        with open(data_file, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        logger.info(f"Saved received data to {data_file}")
-        
-        # Log sample of first container and product for quick inspection
-        if data['containers']:
-            logger.info(f"First container sample: {json.dumps(data['containers'][0], indent=2)}")
-        
-        if data['products']:
-            logger.info(f"First product sample: {json.dumps(data['products'][0], indent=2)}")
+        # Log data receipt immediately
+        logger.info(f"Received data from .NET frontend at {datetime.datetime.now()}")
         
         # Convert to dataframes
         global_containers_df = pd.DataFrame(data['containers'])
         global_products_df = pd.DataFrame(data['products'])
         
-        # Log dataframe columns
-        logger.info(f"Container DataFrame columns: {global_containers_df.columns.tolist()}")
-        logger.info(f"Product DataFrame columns: {global_products_df.columns.tolist()}")
-        
         # Reset the processed flag so we'll reprocess the data
         global_processed = False
         
-        # Update processing status
-        processing_status['is_processing'] = True
-        processing_status['last_update'] = datetime.datetime.now().isoformat()
-        processing_status['progress'] = 0
-        processing_status['error'] = None
+        # Save the full data to file
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_data')
+        os.makedirs(data_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        data_file = os.path.join(data_dir, f'data_{timestamp}.json')
+        with open(data_file, 'w') as f:
+            json.dump(data, f, indent=2)
         
-        # Add the processing task to the queue instead of processing directly
-        processing_queue.put((global_containers_df, global_products_df))
+        # Start a background thread for processing
+        processing_thread = threading.Thread(target=process_data_in_background)
+        processing_thread.daemon = True
+        processing_thread.start()
         
-        # Start background worker if not already running
-        ensure_background_worker_running()
-        
-        return jsonify({
-            'status': 'success', 
-            'message': 'Data received and queued for processing',
-            'timestamp': datetime.datetime.now().isoformat()
-        })
+        return jsonify({'status': 'success', 'message': 'Data received, processing started'})
     except Exception as e:
         logger.error(f"Error processing data: {str(e)}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.server.route('/api/ping', methods=['GET'])
-def ping():
-    """Simple ping endpoint to keep the app alive"""
-    return jsonify({
-        'status': 'ok', 
-        'timestamp': datetime.datetime.now().isoformat(),
-        'server_uptime': int(time.time() - app.config.get('start_time', time.time()))
-    })
-
-@app.server.route('/keep_alive', methods=['GET'])
-def keep_alive_page():
-    """Serve the keep-alive HTML page"""
-    # Get the directory of the current file (app.py)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Path to the static folder
-    static_folder = os.path.join(current_dir, 'static')
+def process_data_in_background():
+    global global_containers_df, global_products_df, global_processed
+    global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
     
-    # Check if the static folder exists
-    if not os.path.exists(static_folder):
-        # Create the static folder if it doesn't exist
-        try:
-            os.makedirs(static_folder)
-            logger.info(f"Created static folder at {static_folder}")
-        except Exception as e:
-            logger.error(f"Failed to create static folder: {str(e)}")
-            return jsonify({"error": "Static folder not found and could not be created"}), 500
-    
-    # Return the keep_alive.html file
-    return send_from_directory(static_folder, 'keep_alive.html')
-
-@app.server.route('/processing_status', methods=['GET'])
-def get_processing_status():
-    global processing_status, global_processed, global_placed_products
-    
-    # Create a response with current status
-    response = {
-        'is_processing': processing_status['is_processing'],
-        'last_update': processing_status['last_update'],
-        'progress': processing_status['progress'],
-        'error': processing_status['error'],
-        'processed': global_processed,
-        'placed_products_count': len(global_placed_products) if global_placed_products else 0,
-        'timestamp': datetime.datetime.now().isoformat()
-    }
-    
-    return jsonify(response)
+    try:
+        logger.info("Background processing started...")
+        
+        # Run your existing processing function
+        global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds = mn.main(
+            global_containers_df, global_products_df
+        )
+        global_processed = True
+        
+        logger.info(f"Background processing complete. Results: {len(global_placed_products)} placed products")
+    except Exception as e:
+        logger.error(f"Error in background processing: {str(e)}", exc_info=True)
+        # Initialize with empty results if processing fails
+        global_placed_products, global_containers = [], []
+        global_blocked_for_ULD, global_placed_ulds = [], []
+        global_processed = True  # Mark as processed to avoid repeated errors
 
 @app.server.route('/api/healthcheck', methods=['GET'])
 def health_check():
@@ -614,24 +464,44 @@ def get_container_data():
         logger.error(f"Error creating combined container data: {str(e)}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
 
+# Function to process data if it hasn't been processed yet
+def ensure_data_processed():
+    global global_containers_df, global_products_df, global_processed
+    global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
+    
+    # If we have data but haven't processed it yet
+    if not global_processed and global_containers_df is not None and global_products_df is not None:
+        try:
+            logger.info("Processing container and product data...")
+            # Run your existing processing function
+            global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds = mn.main(
+                global_containers_df, global_products_df
+            )
+            global_processed = True
+            logger.info(f"Processing complete. Results: {len(global_placed_products)} placed products, "
+                     f"{len(global_containers)} containers, {len(global_blocked_for_ULD)} blocked containers")
+        except Exception as e:
+            logger.error(f"Error in data processing: {str(e)}", exc_info=True)
+            # Initialize with empty results if processing fails
+            global_placed_products, global_containers = [], []
+            global_blocked_for_ULD, global_placed_ulds = [], []
+            global_processed = True  # Mark as processed to avoid repeated errors
+
 # Add a debug endpoint to check the current state
 @app.server.route('/debug', methods=['GET'])
 def debug_info():
     global global_containers_df, global_products_df, global_processed
     global global_placed_products, global_containers, global_blocked_for_ULD, global_placed_ulds
-    global processing_status
     
     info = {
         'timestamp': datetime.datetime.now().isoformat(),
         'has_container_data': global_containers_df is not None,
         'has_product_data': global_products_df is not None,
         'data_processed': global_processed,
-        'processing_status': processing_status,
-        'placed_products_count': len(global_placed_products) if global_placed_products else 0,
+        'placed_products_count': len(global_placed_products),
         'containers_count': len(global_containers) if global_containers else 0,
         'blocked_containers_count': len(global_blocked_for_ULD) if global_blocked_for_ULD else 0,
-        'placed_ulds_count': len(global_placed_ulds) if global_placed_ulds else 0,
-        'server_uptime': int(time.time() - app.config.get('start_time', time.time()))
+        'placed_ulds_count': len(global_placed_ulds) if global_placed_ulds else 0
     }
     
     # Add container columns if available
@@ -642,7 +512,7 @@ def debug_info():
     if global_products_df is not None:
         info['product_columns'] = global_products_df.columns.tolist()
 
-    # Add simplified container list with essential info
+      # NEW: Add simplified container list with essential info
     if global_containers:
         container_list = []
         for container in global_containers:
@@ -662,7 +532,7 @@ def debug_info():
         # Add to main info
         info['container_list'] = container_list
     
-    # Add simplified list of blocked containers (if any)
+    # NEW: Add simplified list of blocked containers (if any)
     if global_blocked_for_ULD:
         blocked_list = []
         for container in global_blocked_for_ULD:
@@ -674,6 +544,7 @@ def debug_info():
             blocked_list.append(blocked_summary)
         
         info['blocked_container_list'] = blocked_list
+    
     
     return jsonify(info)
 
@@ -754,255 +625,41 @@ def update_container_visualization(search, n_intervals):
     logger.info("Visualization created successfully")
     return fig
 
-def create_keep_alive_html():
-    """Create the keep-alive HTML file if it doesn't exist"""
-    # Get the directory of the current file (app.py)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Path to the static folder
-    static_folder = os.path.join(current_dir, 'static')
+def start_self_ping():
+    """Start a background thread that pings the app to keep it responsive"""
+    def ping_thread():
+        app_url = os.environ.get('WEBSITE_HOSTNAME', 'your-app-name.azurewebsites.net')
+        while True:
+            try:
+                # Ping the health check endpoint every 5 minutes
+                requests.get(f"https://{app_url}/api/healthcheck", timeout=10)
+                logger.info("Self-ping completed successfully")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)}")
+            
+            # Sleep for 5 minutes
+            time.sleep(120)
     
-    # Ensure the static folder exists
-    if not os.path.exists(static_folder):
-        try:
-            os.makedirs(static_folder)
-            logger.info(f"Created static folder at {static_folder}")
-        except Exception as e:
-            logger.error(f"Failed to create static folder: {str(e)}")
-            return
+    # Start the thread
+    thread = threading.Thread(target=ping_thread)
+    thread.daemon = True
+    thread.start()
+    logger.info("Self-ping thread started")
+
+@app.server.route('/processing_status', methods=['GET'])
+def get_processing_status():
+    global global_processed
     
-    # Path to the keep_alive.html file
-    keep_alive_file = os.path.join(static_folder, 'keep_alive.html')
-    
-    # Only create if it doesn't exist
-    if not os.path.exists(keep_alive_file):
-        logger.info("Creating keep_alive.html file")
-        
-        keep_alive_html = """<!DOCTYPE html>
-<html>
-<head>
-    <title>Keep Alive - Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        .status-container {
-            margin: 20px 0;
-            padding: 15px;
-            border-radius: 5px;
-            background-color: #e8f5e9;
-        }
-        .status {
-            font-weight: bold;
-        }
-        .processing {
-            color: #2196F3;
-        }
-        .idle {
-            color: #4CAF50;
-        }
-        .error {
-            color: #F44336;
-        }
-        .log {
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            margin-top: 20px;
-        }
-        h1 {
-            color: #333;
-        }
-    </style>
-    <script>
-        // Array to store log messages
-        const logMessages = [];
-        
-        // Maximum number of log messages to display
-        const MAX_LOG_ENTRIES = 20;
-        
-        // Add a log message to the log container
-        function addLog(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            logMessages.unshift(`[${timestamp}] ${message}`);
-            
-            // Keep only the most recent messages
-            if (logMessages.length > MAX_LOG_ENTRIES) {
-                logMessages.pop();
-            }
-            
-            // Update the log display
-            document.getElementById('log').innerHTML = logMessages.join('<br>');
-        }
-        
-        // Ping the app to keep it alive
-        function pingServer() {
-            fetch('/api/ping', { method: 'GET' })
-                .then(response => {
-                    if (response.ok) {
-                        addLog('Ping successful');
-                    } else {
-                        addLog('Ping returned non-200 status: ' + response.status);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    document.getElementById('last-ping').textContent = data.timestamp;
-                    document.getElementById('uptime').textContent = formatUptime(data.server_uptime);
-                })
-                .catch(error => {
-                    addLog('Ping failed: ' + error);
-                    document.getElementById('last-ping').textContent = 'Failed';
-                });
-            
-            // Check processing status
-            fetch('/processing_status', { method: 'GET' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Status response not OK');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    const statusElement = document.getElementById('status');
-                    const statusContainerElement = document.getElementById('status-container');
-                    
-                    // Update the displayed status
-                    if (data.is_processing) {
-                        statusElement.textContent = 'Processing: ' + data.progress + '%';
-                        statusElement.className = 'status processing';
-                        statusContainerElement.style.backgroundColor = '#e3f2fd'; // Light blue
-                    } else if (data.progress === -1) {
-                        statusElement.textContent = 'Error during processing';
-                        statusElement.className = 'status error';
-                        statusContainerElement.style.backgroundColor = '#ffebee'; // Light red
-                    } else {
-                        statusElement.textContent = 'Idle';
-                        statusElement.className = 'status idle';
-                        statusContainerElement.style.backgroundColor = '#e8f5e9'; // Light green
-                    }
-                    
-                    // Update additional status info
-                    document.getElementById('last-update').textContent = data.last_update || 'N/A';
-                    document.getElementById('placed-products').textContent = data.placed_products_count;
-                    
-                    // Handle errors
-                    if (data.error) {
-                        document.getElementById('error-message').textContent = data.error;
-                        document.getElementById('error-container').style.display = 'block';
-                    } else {
-                        document.getElementById('error-container').style.display = 'none';
-                    }
-                    
-                    addLog('Status check: ' + statusElement.textContent);
-                })
-                .catch(error => {
-                    addLog('Status check failed: ' + error);
-                    document.getElementById('status').textContent = 'Unknown';
-                    document.getElementById('status').className = 'status error';
-                });
-        }
-        
-        // Format uptime in days, hours, minutes, seconds
-        function formatUptime(seconds) {
-            const days = Math.floor(seconds / 86400);
-            seconds %= 86400;
-            const hours = Math.floor(seconds / 3600);
-            seconds %= 3600;
-            const minutes = Math.floor(seconds / 60);
-            seconds %= 60;
-            
-            let uptime = '';
-            if (days > 0) uptime += days + 'd ';
-            if (hours > 0) uptime += hours + 'h ';
-            if (minutes > 0) uptime += minutes + 'm ';
-            uptime += seconds + 's';
-            
-            return uptime;
-        }
-        
-        // Initial ping and then regular interval
-        window.onload = function() {
-            addLog('Keep-alive page initialized');
-            pingServer();
-            // Set interval to ping every 60 seconds (60,000 ms)
-            setInterval(pingServer, 60000);
-            // Update the ping countdown
-            setInterval(updateCountdown, 1000);
-        };
-        
-        // Countdown timer for next ping
-        let countdown = 60;
-        function updateCountdown() {
-            countdown = countdown - 1;
-            if (countdown <= 0) {
-                countdown = 60;
-            }
-            document.getElementById('countdown').textContent = countdown;
-        }
-    </script>
-</head>
-<body>
-    <div class="container">
-        <h1>Dashboard Keep-Alive Page</h1>
-        
-        <div id="status-container" class="status-container">
-            <h2>Current Status</h2>
-            <p>Processing Status: <span id="status" class="status">Checking...</span></p>
-            <p>Last Status Update: <span id="last-update">-</span></p>
-            <p>Placed Products: <span id="placed-products">0</span></p>
-            
-            <div id="error-container" style="display: none; background-color: #ffebee; padding: 10px; border-radius: 5px; margin-top: 10px;">
-                <h3 style="color: #d32f2f; margin-top: 0;">Error</h3>
-                <p id="error-message"></p>
-            </div>
-        </div>
-        
-        <div>
-            <h2>Keep-Alive Status</h2>
-            <p>Next ping in <span id="countdown">60</span> seconds</p>
-            <p>Last successful ping: <span id="last-ping">None yet</span></p>
-            <p>Server uptime: <span id="uptime">-</span></p>
-            <p><em>This page helps keep your Azure Web App running by sending periodic pings. Leave it open in a browser tab to maintain connectivity.</em></p>
-        </div>
-        
-        <div>
-            <h2>Activity Log</h2>
-            <div id="log" class="log">Initializing...</div>
-        </div>
-    </div>
-</body>
-</html>
-"""
-        
-        try:
-            with open(keep_alive_file, 'w') as f:
-                f.write(keep_alive_html)
-            logger.info(f"Created keep_alive.html at {keep_alive_file}")
-        except Exception as e:
-            logger.error(f"Failed to create keep_alive.html: {str(e)}")
+    status = 'complete' if global_processed else 'processing'
+    return jsonify({
+        'status': status,
+        'timestamp': datetime.datetime.now().isoformat(),
+        'placed_products_count': len(global_placed_products) if global_processed else 0
+    })
 
 # Run the Dash app - modified for Azure
 if __name__ == '__main__':
     logger.info("Starting Dash application")
-    
-    # Create the keep_alive.html file
-    create_keep_alive_html()
-    
-    # Start the background worker
-    ensure_background_worker_running()
-    
-    # Run the app
+    start_self_ping()
     app.run_server(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8050)))
+    #app.run(debug=False)
