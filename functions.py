@@ -1665,7 +1665,8 @@ def pack_products_sequentially(containers, products, blocked_containers, DC_tota
                 print("Too many missed products. Blocking containers.")
                 blocked_containers.extend(used_containers)
                 break
-
+            
+            
             placed = try_place_product(product, container, container_placed, occupied_volume, placed_products)
 
             if placed:
@@ -1708,7 +1709,10 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
     Returns:
         bool: True if the product was successfully placed, False otherwise.
     """
-    for orientation in get_orientations(product):
+
+    is_first_Product = len(container_placed) == 0
+
+    if is_first_Product:
         l, w, h = orientation
         for y in range(0, math.floor(container['Width'] - w)):
             for x in range(0, math.floor(container['Length'] - l)):
@@ -1731,4 +1735,30 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
                         remaining_volume_percentage = round(((container['Volume'] - occupied_volume) * 100 / container['Volume']), 2)
                         print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage}%")
                         return True
-    return False
+
+    else:  
+        for orientation in get_orientations(product):
+
+            l, w, h = orientation
+            for y in range(0, math.floor(container['Width'] - w)):
+                for x in range(0, math.floor(container['Length'] - l)):
+                    for z in range(0, math.floor(container['Height'] - h)):
+                        if fits(container, container_placed, x, y, z, l, w, h):
+                            product_data = {
+                                'id': product['id'],
+                                'Length': l,
+                                'Breadth': w,
+                                'Height': h,
+                                'position': (x, y, z, l, w, h),
+                                'container': container['id'],
+                                'Volume': product['Volume'],
+                                'DestinationCode': product['DestinationCode'],
+                                'awb_number': product['awb_number']
+                            }
+                            container_placed.append(product_data)
+                            placed_products.append(product_data)
+                            occupied_volume += product['Volume']
+                            remaining_volume_percentage = round(((container['Volume'] - occupied_volume) * 100 / container['Volume']), 2)
+                            print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage}%")
+                            return True
+        return False
