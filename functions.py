@@ -1713,7 +1713,7 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
     is_first_Product = len(container_placed) == 0
 
     if is_first_Product:
-        l, w, h = orientation
+        l, w, h = (l,w,h)
         for y in range(0, math.floor(container['Width'] - w)):
             for x in range(0, math.floor(container['Length'] - l)):
                 for z in range(0, math.floor(container['Height'] - h)):
