@@ -93,7 +93,7 @@ def get_orientations(product):
     # Cache dimensions to avoid repeated dictionary lookups
     l, b, h = product['Length'], product['Breadth'], product['Height']
     #return {(pl, pb, h) for pl, pb in permutations([l, b])}
-    return {(l,b,h)}
+    return {(l,b,h),(b,l,h),(l,h,b),(b,h,l),(h,l,b),(h,b,l)}
 
 
 # Keep original process function for compatibility
