@@ -306,7 +306,7 @@ def pack_products_sequentially(containers, products, blocked_containers, DC_tota
 
 def try_place_product(product, container, container_placed, occupied_volume, placed_products):
     """
-    Attempt to place a product in the container with special handling for double-bottom containers.
+    Attempt to place a product in the container.
 
     Args:
         product (dict): The product to be placed.
@@ -319,70 +319,28 @@ def try_place_product(product, container, container_placed, occupied_volume, pla
         tuple: (bool, float) - (True if placed, updated occupied volume)
     """
     print(f"Before placing product {product['id']}: occupied_volume = {occupied_volume}")
-    
     for orientation in get_orientations(product):
         l, w, h = orientation
-        max_x = math.floor(container['Length'] - l)
-        max_height = container['Height']
-        
-        # Special handling for double-bottom containers
-        if container['SD'] == 'D' and container['TB'] == 'B':
-            height_limit = container['Height'] - container['Heightx']
-            small_width = (container['Width'] - container['Widthx']) / 2
-            
-            # First try positions below the height limit (in the narrower section)
-            for z in range(0, math.floor(height_limit)):
-                for x in range(0, max_x):
-                    # Use a restricted y-range for the narrower section
-                    for y in range(math.ceil(small_width), math.floor(container['Width'] - small_width - w)):
-                        if z + h <= height_limit:  # Ensure product stays within narrow section
-                            if fits(container, container_placed, x, y, z, l, w, h):
-                                return place_product(product, container, container_placed, placed_products, 
-                                                   x, y, z, l, w, h, occupied_volume)
-            
-            # Then try positions above the height limit (in the full-width section)
-            for z in range(math.floor(height_limit), math.floor(max_height - h)):
-                for x in range(0, max_x):
-                    # Use full width above the height limit
-                    for y in range(0, math.floor(container['Width'] - w)):
-                        if fits(container, container_placed, x, y, z, l, w, h):
-                            return place_product(product, container, container_placed, placed_products, 
-                                               x, y, z, l, w, h, occupied_volume)
-        
-        # Standard placement for other container types
-        else:
-            for x in range(0, max_x):
-                for y in range(0, math.floor(container['Width'] - w)):
-                    for z in range(0, math.floor(max_height - h)):
-                        if fits(container, container_placed, x, y, z, l, w, h):
-                            return place_product(product, container, container_placed, placed_products, 
-                                               x, y, z, l, w, h, occupied_volume)
-    
+        for y in range(0, math.floor(container['Width'] - l)):
+            for x in range(0, math.floor(container['Length'] - w)):
+                for z in range(0, math.floor(container['Height'] - h)):
+                    if fits(container, container_placed, x, y, z, l, w, h):
+                        product_data = {
+                            'id': product['id'],
+                            'Length': l,
+                            'Breadth': w,
+                            'Height': h,
+                            'position': (x, y, z, l, w, h),
+                            'container': container['id'],
+                            'Volume': product['Volume'],
+                            'DestinationCode': product['DestinationCode'],
+                            'awb_number': product['awb_number']
+                        }
+                        container_placed.append(product_data)
+                        placed_products.append(product_data)
+                        occupied_volume += product['Volume']
+                        remaining_volume_percentage = round(((container['Volume'] - occupied_volume) * 100 / container['Volume']), 2)
+                        print(f"Before placing product {product['id']}: occupied_volume = {occupied_volume}")
+                        print(f"Product {product['id']} placed in container {container['id']}\n Remaining volume: {remaining_volume_percentage}%\n\n")
+                        return True, occupied_volume
     return False, occupied_volume
-
-def place_product(product, container, container_placed, placed_products, x, y, z, l, w, h, occupied_volume):
-    """
-    Helper function to create product data and update lists when a product is placed.
-    """
-    product_data = {
-        'id': product['id'],
-        'Length': l,
-        'Breadth': w,
-        'Height': h,
-        'position': (x, y, z, l, w, h),
-        'container': container['id'],
-        'Volume': product['Volume'],
-        'DestinationCode': product['DestinationCode'],
-        'awb_number': product['awb_number']
-    }
-    
-    container_placed.append(product_data)
-    placed_products.append(product_data)
-    
-    occupied_volume += product['Volume']
-    remaining_volume_percentage = round(((container['Volume'] - occupied_volume) * 100 / container['Volume']), 2)
-    
-    print(f"Product {product['id']} placed in container {container['id']} at ({x}, {y}, {z})")
-    print(f"Remaining volume in container: {remaining_volume_percentage}%\n")
-    
-    return True, occupied_volume
